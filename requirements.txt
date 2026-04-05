@@ -1,0 +1,6 @@
+aiogram==3.4.1
+aiosqlite
+python-dateutil
+APScheduler==3.10.4
+tzdata
+gspread
