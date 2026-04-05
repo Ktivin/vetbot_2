@@ -16,5 +16,9 @@ services:
         sync: false
       - key: GOOGLE_SHEETS_WORKSHEET_NAME
         sync: false
+      - key: GOOGLE_SHEETS_CONSULTATIONS_WORKSHEET_NAME
+        sync: false
+      - key: GOOGLE_SHEETS_SYSTEM_WORKSHEET_NAME
+        sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false

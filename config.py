@@ -46,4 +46,12 @@ ADMIN_USER_IDS = _get_admin_user_id()
 BUSINESS_TIMEZONE = _get_business_timezone()
 GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "").strip()
 GOOGLE_SHEETS_WORKSHEET_NAME = os.getenv("GOOGLE_SHEETS_WORKSHEET_NAME", "Clients").strip() or "Clients"
+GOOGLE_SHEETS_CONSULTATIONS_WORKSHEET_NAME = (
+    os.getenv("GOOGLE_SHEETS_CONSULTATIONS_WORKSHEET_NAME", "Consultations").strip()
+    or "Consultations"
+)
+GOOGLE_SHEETS_SYSTEM_WORKSHEET_NAME = (
+    os.getenv("GOOGLE_SHEETS_SYSTEM_WORKSHEET_NAME", "_system").strip()
+    or "_system"
+)
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()

@@ -4,6 +4,17 @@ import aiosqlite
 from datetime import datetime, timedelta
 
 from config import BUSINESS_TIMEZONE
+from integrations.google_sheets_consultations import (
+    add_consultation_to_google_sheets,
+    delete_old_consultations_in_google_sheets,
+    get_admin_counts_from_google_sheets,
+    get_consultation_by_id_from_google_sheets,
+    get_consultations_from_google_sheets,
+    is_google_sheets_consultations_enabled,
+    is_slot_available_in_google_sheets,
+    update_consultation_status_in_google_sheets,
+)
+from integrations.google_sheets_store import get_client_profile_from_google_sheets
 
 
 DB_NAME = "consultations.db"
@@ -48,6 +59,16 @@ def _row_to_client(row: tuple | None) -> dict | None:
     return dict(zip(CLIENT_COLUMNS, row))
 
 
+async def _get_client_profile_local(user_id: int) -> dict | None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT * FROM clients WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return _row_to_client(row)
+
+
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
@@ -88,6 +109,9 @@ async def init_db():
 
 
 async def add_consultation(data: dict) -> int:
+    if is_google_sheets_consultations_enabled():
+        return await add_consultation_to_google_sheets(data)
+
     async with aiosqlite.connect(DB_NAME) as db:
         cursor = await db.execute(
             """
@@ -111,6 +135,9 @@ async def add_consultation(data: dict) -> int:
 
 
 async def get_all_consultations():
+    if is_google_sheets_consultations_enabled():
+        return await get_consultations_from_google_sheets("all")
+
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
             "SELECT * FROM consultations ORDER BY date, time, created_at"
@@ -120,6 +147,9 @@ async def get_all_consultations():
 
 
 async def get_consultations(filter_name: str = "all") -> list[dict]:
+    if is_google_sheets_consultations_enabled():
+        return await get_consultations_from_google_sheets(filter_name)
+
     query = "SELECT * FROM consultations"
     params: list[str] = []
     clauses: list[str] = []
@@ -151,6 +181,9 @@ async def get_consultations(filter_name: str = "all") -> list[dict]:
 
 
 async def get_consultation_by_id(record_id: int) -> dict | None:
+    if is_google_sheets_consultations_enabled():
+        return await get_consultation_by_id_from_google_sheets(record_id)
+
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
             "SELECT * FROM consultations WHERE id = ?",
@@ -161,17 +194,21 @@ async def get_consultation_by_id(record_id: int) -> dict | None:
 
 
 async def get_client_profile(user_id: int) -> dict | None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute(
-            "SELECT * FROM clients WHERE user_id = ?",
-            (user_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            return _row_to_client(row)
+    local_profile = await _get_client_profile_local(user_id)
+    if local_profile:
+        return local_profile
+
+    google_profile = await get_client_profile_from_google_sheets(user_id)
+    if not google_profile:
+        return None
+
+    cached_profile = await upsert_client_profile(google_profile, sync_to_google=False)
+    logger.info("Профіль клієнта %s відновлено з Google Sheets у локальний кеш.", user_id)
+    return cached_profile
 
 
-async def upsert_client_profile(data: dict) -> dict:
-    existing_profile = await get_client_profile(data["user_id"])
+async def upsert_client_profile(data: dict, sync_to_google: bool = True) -> dict:
+    existing_profile = await _get_client_profile_local(data["user_id"])
     created_at = (
         existing_profile["created_at"]
         if existing_profile and existing_profile.get("created_at")
@@ -232,10 +269,18 @@ async def upsert_client_profile(data: dict) -> dict:
         )
         await db.commit()
 
+    if sync_to_google:
+        from integrations.google_sheets_store import sync_client_profile
+
+        await sync_client_profile(profile)
+
     return profile
 
 
 async def update_consultation_status(record_id: int, new_status: str) -> bool:
+    if is_google_sheets_consultations_enabled():
+        return await update_consultation_status_in_google_sheets(record_id, new_status)
+
     async with aiosqlite.connect(DB_NAME) as db:
         cursor = await db.execute(
             "UPDATE consultations SET status = ? WHERE id = ?",
@@ -246,6 +291,9 @@ async def update_consultation_status(record_id: int, new_status: str) -> bool:
 
 
 async def get_admin_counts() -> dict[str, int]:
+    if is_google_sheets_consultations_enabled():
+        return await get_admin_counts_from_google_sheets()
+
     today = datetime.now(BUSINESS_TIMEZONE).date()
     tomorrow = today + timedelta(days=1)
 
@@ -288,6 +336,9 @@ async def is_slot_available(
     time: str,
     city: str | None = None,
 ) -> bool:
+    if is_google_sheets_consultations_enabled():
+        return await is_slot_available_in_google_sheets(specialist, date, time, city)
+
     """
     Перевіряє, чи вільний слот.
     Якщо місто не вказано, вважаємо консультацію онлайн.
@@ -316,6 +367,9 @@ async def is_slot_available(
 
 
 async def delete_old_consultations():
+    if is_google_sheets_consultations_enabled():
+        return await delete_old_consultations_in_google_sheets()
+
     """
     Видаляє записи, дата яких уже минула.
     Викликається щодня о 03:00 за часовим поясом бота.

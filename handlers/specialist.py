@@ -49,6 +49,7 @@ from texts import (
     SUMMARY_TIME,
     SUMMARY_TITLE,
     SUMMARY_TYPE,
+    ONBOARDING_REQUIRED_BEFORE_BOOKING,
     WELCOME_CHOOSE_SPECIALIST,
 )
 
@@ -218,9 +219,7 @@ async def choose_specialist(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     profile = await get_client_profile(callback.from_user.id)
     if not profile:
-        await callback.message.answer(
-            "Щоб продовжити запис, спочатку надішліть контакт і коротку інформацію про хвостика через /start."
-        )
+        await callback.message.answer(ONBOARDING_REQUIRED_BEFORE_BOOKING)
         return
 
     spec_key = callback.data.split(":")[1]
@@ -493,3 +492,4 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         from .start import main_menu
 
         await callback.message.edit_text(WELCOME_CHOOSE_SPECIALIST, reply_markup=main_menu())
+

@@ -14,7 +14,6 @@ from aiogram.types import (
 )
 
 from database import get_client_profile, upsert_client_profile
-from integrations.google_sheets import sync_client_profile
 from texts import (
     PROFILE_ALREADY_SAVED,
     PROFILE_ASK_AGE,
@@ -65,8 +64,8 @@ def contact_request_keyboard() -> ReplyKeyboardMarkup:
 def main_menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=SPECIALIST_LABELS["kynologist"], callback_data="spec:kynologist")],
             [InlineKeyboardButton(text=SPECIALIST_LABELS["veterinarian"], callback_data="spec:veterinarian")],
+            [InlineKeyboardButton(text=SPECIALIST_LABELS["kynologist"], callback_data="spec:kynologist")],
             [InlineKeyboardButton(text=SPECIALIST_LABELS["rehab"], callback_data="spec:rehab")],
             [
                 InlineKeyboardButton(
@@ -190,8 +189,7 @@ async def save_issue_description(message: Message, state: FSMContext):
     profile_data = await state.get_data()
 
     try:
-        profile = await upsert_client_profile(profile_data)
-        await sync_client_profile(profile)
+        await upsert_client_profile(profile_data)
     except Exception:
         logger.exception("Не вдалося зберегти профіль клієнта.")
         await message.answer(PROFILE_SAVE_ERROR, reply_markup=ReplyKeyboardRemove())
