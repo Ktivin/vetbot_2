@@ -85,9 +85,10 @@ def _sync_profile_sync(profile: dict) -> None:
 
     for index, existing_user_id in enumerate(existing_user_ids[1:], start=2):
         if existing_user_id.strip() == user_id:
+            worksheet.batch_clear([f"M{index}:Z{index}"])
             worksheet.update(f"A{index}:L{index}", [row_values])
             logger.info(
-                "Профіль клієнта %s оновлено в Google Sheets (%s / %s).",
+                "РџСЂРѕС„С–Р»СЊ РєР»С–С”РЅС‚Р° %s РѕРЅРѕРІР»РµРЅРѕ РІ Google Sheets (%s / %s).",
                 user_id,
                 GOOGLE_SHEETS_SPREADSHEET_ID,
                 GOOGLE_SHEETS_WORKSHEET_NAME,
@@ -96,7 +97,7 @@ def _sync_profile_sync(profile: dict) -> None:
 
     worksheet.append_row(row_values)
     logger.info(
-        "Профіль клієнта %s додано в Google Sheets (%s / %s).",
+        "РџСЂРѕС„С–Р»СЊ РєР»С–С”РЅС‚Р° %s РґРѕРґР°РЅРѕ РІ Google Sheets (%s / %s).",
         user_id,
         GOOGLE_SHEETS_SPREADSHEET_ID,
         GOOGLE_SHEETS_WORKSHEET_NAME,
@@ -110,7 +111,7 @@ async def sync_client_profile(profile: dict) -> None:
     try:
         await asyncio.to_thread(_sync_profile_sync, profile)
     except Exception:
-        logger.exception("Не вдалося синхронізувати профіль клієнта з Google Sheets.")
+        logger.exception("РќРµ РІРґР°Р»РѕСЃСЏ СЃРёРЅС…СЂРѕРЅС–Р·СѓРІР°С‚Рё РїСЂРѕС„С–Р»СЊ РєР»С–С”РЅС‚Р° Р· Google Sheets.")
 
 
 def _get_profile_sync(user_id: int) -> dict | None:
@@ -141,7 +142,7 @@ def _get_profile_sync(user_id: int) -> dict | None:
                 profile[header] = row[column_index].strip()
 
         logger.info(
-            "Профіль клієнта %s знайдено в Google Sheets (%s / %s).",
+            "РџСЂРѕС„С–Р»СЊ РєР»С–С”РЅС‚Р° %s Р·РЅР°Р№РґРµРЅРѕ РІ Google Sheets (%s / %s).",
             expected_user_id,
             GOOGLE_SHEETS_SPREADSHEET_ID,
             GOOGLE_SHEETS_WORKSHEET_NAME,
@@ -158,5 +159,5 @@ async def get_client_profile_from_google_sheets(user_id: int) -> dict | None:
     try:
         return await asyncio.to_thread(_get_profile_sync, user_id)
     except Exception:
-        logger.exception("Не вдалося отримати профіль клієнта з Google Sheets.")
+        logger.exception("РќРµ РІРґР°Р»РѕСЃСЏ РѕС‚СЂРёРјР°С‚Рё РїСЂРѕС„С–Р»СЊ РєР»С–С”РЅС‚Р° Р· Google Sheets.")
         return None
