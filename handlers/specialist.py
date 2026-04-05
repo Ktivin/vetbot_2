@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import ADMIN_USER_ID, BUSINESS_TIMEZONE
+from config import ADMIN_USER_IDS, BUSINESS_TIMEZONE
 from database import add_consultation, get_client_profile, is_slot_available
 from formatting import (
     format_date_for_button,
@@ -417,7 +417,8 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         admin_text += f"Місто: {city}\n"
 
     try:
-        await callback.bot.send_message(ADMIN_USER_ID, admin_text)
+        for admin_id in ADMIN_USER_IDS:
+            await callback.bot.send_message(admin_id, admin_text)
     except Exception:
         logger.exception("Не вдалося надіслати сповіщення адміністратору.")
 

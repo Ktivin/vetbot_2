@@ -5,7 +5,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from config import ADMIN_USER_ID
+from config import ADMIN_USER_IDS
 from database import (
     get_admin_counts,
     get_client_profile,
@@ -73,7 +73,7 @@ ACTION_STATUS_MAP = {
 
 
 def _is_admin(user_id: int) -> bool:
-    return user_id == ADMIN_USER_ID
+    return user_id in ADMIN_USER_IDS
 
 
 def _admin_menu_keyboard(counts: dict[str, int]) -> InlineKeyboardMarkup:
