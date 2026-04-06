@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 
 from config import (
@@ -32,6 +33,11 @@ SYSTEM_HEADERS = [
     "updated_at",
 ]
 POLLING_LOCK_KEY = "polling_lock"
+CONSULTATIONS_CACHE_TTL_SECONDS = 20
+_consultations_cache: dict[str, object] = {
+    "records": None,
+    "expires_at": 0.0,
+}
 
 
 def _is_configured() -> bool:
@@ -40,6 +46,28 @@ def _is_configured() -> bool:
 
 def is_google_sheets_consultations_enabled() -> bool:
     return _is_configured()
+
+
+def _is_quota_error(error: Exception) -> bool:
+    return "[429]" in str(error) or "Quota exceeded" in str(error)
+
+
+def _get_cached_consultations() -> list[dict] | None:
+    records = _consultations_cache.get("records")
+    expires_at = float(_consultations_cache.get("expires_at", 0.0) or 0.0)
+    if not records or time.monotonic() >= expires_at:
+        return None
+    return [dict(record) for record in records]  # return a copy for safety
+
+
+def _set_cached_consultations(records: list[dict], ttl_seconds: int = CONSULTATIONS_CACHE_TTL_SECONDS) -> None:
+    _consultations_cache["records"] = [dict(record) for record in records]
+    _consultations_cache["expires_at"] = time.monotonic() + ttl_seconds
+
+
+def _invalidate_consultations_cache() -> None:
+    _consultations_cache["records"] = None
+    _consultations_cache["expires_at"] = 0.0
 
 
 def _get_spreadsheet_sync():
@@ -114,7 +142,22 @@ async def get_consultations_from_google_sheets(filter_name: str = "all") -> list
     if not _is_configured():
         return []
 
-    records = await asyncio.to_thread(_read_all_consultations_sync)
+    cached_records = _get_cached_consultations()
+    if cached_records is not None:
+        records = cached_records
+    else:
+        try:
+            records = await asyncio.to_thread(_read_all_consultations_sync)
+            _set_cached_consultations(records)
+        except Exception as error:
+            stale_records = _consultations_cache.get("records")
+            if stale_records and _is_quota_error(error):
+                logger.warning(
+                    "Перевищено квоту читання Google Sheets. Використовую кешовані записи консультацій."
+                )
+                records = [dict(record) for record in stale_records]
+            else:
+                raise
     today = datetime.now(BUSINESS_TIMEZONE).date()
 
     if filter_name == "pending":
@@ -166,6 +209,14 @@ def _add_consultation_sync(data: dict) -> int:
         "created_at": datetime.now(BUSINESS_TIMEZONE).isoformat(),
     }
     worksheet.append_row(_consultation_to_row(record))
+    cached_records = _consultations_cache.get("records")
+    if cached_records:
+        updated_records = [dict(item) for item in cached_records]
+        updated_records.append(record)
+        updated_records.sort(key=lambda item: (item["date"], item["time"], item["created_at"], item["id"]))
+        _set_cached_consultations(updated_records)
+    else:
+        _invalidate_consultations_cache()
     logger.info(
         "Запис %s додано в Google Sheets (%s / %s).",
         next_id,
@@ -204,6 +255,17 @@ def _update_consultation_status_sync(record_id: int, new_status: str) -> bool:
         return False
 
     worksheet.update(f"I{row_index}", [[new_status]])
+    cached_records = _consultations_cache.get("records")
+    if cached_records:
+        updated_records = []
+        for record in cached_records:
+            updated_record = dict(record)
+            if updated_record["id"] == record_id:
+                updated_record["status"] = new_status
+            updated_records.append(updated_record)
+        _set_cached_consultations(updated_records)
+    else:
+        _invalidate_consultations_cache()
     logger.info(
         "Статус запису %s оновлено в Google Sheets: %s.",
         record_id,
@@ -264,6 +326,7 @@ def _rewrite_consultations_sync(records: list[dict]) -> int:
     all_rows = [CONSULTATION_HEADERS] + [_consultation_to_row(record) for record in records]
     worksheet.clear()
     worksheet.update(f"A1:J{len(all_rows)}", all_rows)
+    _set_cached_consultations(records)
     return len(records)
 
 
