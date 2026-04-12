@@ -33,6 +33,7 @@ from texts import (
 
 router = Router()
 logger = logging.getLogger(__name__)
+ONBOARDING_TOTAL_STEPS = 5
 
 
 class OnboardingStates(StatesGroup):
@@ -77,6 +78,10 @@ def main_menu():
     )
 
 
+def _onboarding_step_text(step: int, text: str) -> str:
+    return f"Крок {step} із {ONBOARDING_TOTAL_STEPS}\n\n{text}"
+
+
 async def _show_main_menu(message: Message, text: str = START_GREETING):
     await message.answer(text, reply_markup=main_menu())
 
@@ -119,7 +124,10 @@ async def save_contact(message: Message, state: FSMContext):
         phone_number=contact.phone_number,
     )
     await state.set_state(OnboardingStates.waiting_pet_name)
-    await message.answer(PROFILE_ASK_PET_NAME, reply_markup=ReplyKeyboardRemove())
+    await message.answer(
+        _onboarding_step_text(1, PROFILE_ASK_PET_NAME),
+        reply_markup=ReplyKeyboardRemove(),
+    )
 
 
 @router.message(OnboardingStates.waiting_contact)
@@ -134,55 +142,55 @@ async def contact_required(message: Message):
 async def save_pet_name(message: Message, state: FSMContext):
     pet_name = _extract_text(message)
     if not pet_name:
-        await message.answer(PROFILE_ASK_PET_NAME)
+        await message.answer(_onboarding_step_text(1, PROFILE_ASK_PET_NAME))
         return
 
     await state.update_data(pet_name=pet_name)
     await state.set_state(OnboardingStates.waiting_pet_breed)
-    await message.answer(PROFILE_ASK_BREED)
+    await message.answer(_onboarding_step_text(2, PROFILE_ASK_BREED))
 
 
 @router.message(OnboardingStates.waiting_pet_breed)
 async def save_pet_breed(message: Message, state: FSMContext):
     pet_breed = _extract_text(message)
     if not pet_breed:
-        await message.answer(PROFILE_ASK_BREED)
+        await message.answer(_onboarding_step_text(2, PROFILE_ASK_BREED))
         return
 
     await state.update_data(pet_breed=pet_breed)
     await state.set_state(OnboardingStates.waiting_pet_age)
-    await message.answer(PROFILE_ASK_AGE)
+    await message.answer(_onboarding_step_text(3, PROFILE_ASK_AGE))
 
 
 @router.message(OnboardingStates.waiting_pet_age)
 async def save_pet_age(message: Message, state: FSMContext):
     pet_age = _extract_text(message)
     if not pet_age:
-        await message.answer(PROFILE_ASK_AGE)
+        await message.answer(_onboarding_step_text(3, PROFILE_ASK_AGE))
         return
 
     await state.update_data(pet_age=pet_age)
     await state.set_state(OnboardingStates.waiting_pet_weight)
-    await message.answer(PROFILE_ASK_WEIGHT)
+    await message.answer(_onboarding_step_text(4, PROFILE_ASK_WEIGHT))
 
 
 @router.message(OnboardingStates.waiting_pet_weight)
 async def save_pet_weight(message: Message, state: FSMContext):
     pet_weight = _extract_text(message)
     if not pet_weight:
-        await message.answer(PROFILE_ASK_WEIGHT)
+        await message.answer(_onboarding_step_text(4, PROFILE_ASK_WEIGHT))
         return
 
     await state.update_data(pet_weight=pet_weight)
     await state.set_state(OnboardingStates.waiting_issue_description)
-    await message.answer(PROFILE_ASK_ISSUE)
+    await message.answer(_onboarding_step_text(5, PROFILE_ASK_ISSUE))
 
 
 @router.message(OnboardingStates.waiting_issue_description)
 async def save_issue_description(message: Message, state: FSMContext):
     issue_description = _extract_text(message)
     if not issue_description:
-        await message.answer(PROFILE_ASK_ISSUE)
+        await message.answer(_onboarding_step_text(5, PROFILE_ASK_ISSUE))
         return
 
     await state.update_data(issue_description=issue_description)

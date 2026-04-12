@@ -23,8 +23,10 @@ from texts import (
     CANCEL_BUTTON,
     CHECK_SLOT_ERROR,
     CITY_LABELS,
+    CHANGE_TIME_BUTTON,
     CONFIRM_BUTTON,
     CONSULTATION_TYPE_LABELS,
+    HOME_BUTTON,
     KYNOLOGIST_TYPE_LABELS,
     NO_FREE_TIMES_FOR_DATE,
     NO_TIMES_LEFT_FOR_TODAY,
@@ -89,6 +91,25 @@ def _format_summary(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _step_context(data: dict) -> str:
+    lines: list[str] = []
+    if data.get("specialist"):
+        lines.append(f"{SUMMARY_SPECIALIST}: {data['specialist']}")
+    if data.get("consultation_type"):
+        lines.append(f"{SUMMARY_TYPE}: {data['consultation_type']}")
+    city = data.get("city", "").strip()
+    if city:
+        lines.append(f"{SUMMARY_CITY}: {city}")
+    return "\n".join(lines)
+
+
+def _prompt_with_context(prompt: str, data: dict) -> str:
+    context = _step_context(data)
+    if not context:
+        return prompt
+    return f"{context}\n\n{prompt}"
+
+
 def _format_booking_created_message(data: dict) -> str:
     lines = [
         BOOKING_SUCCESS_TITLE,
@@ -120,7 +141,10 @@ def kynologist_types():
             [InlineKeyboardButton(text=KYNOLOGIST_TYPE_LABELS["online"], callback_data="kyno:online")],
             [InlineKeyboardButton(text=KYNOLOGIST_TYPE_LABELS["training"], callback_data="kyno:training")],
             [InlineKeyboardButton(text=KYNOLOGIST_TYPE_LABELS["venue"], callback_data="kyno:venue")],
-            [InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:main")],
+            [
+                InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:main"),
+                InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+            ],
         ]
     )
 
@@ -132,7 +156,10 @@ def consultation_types():
             [InlineKeyboardButton(text=CONSULTATION_TYPE_LABELS["analysis"], callback_data="cons:analysis")],
             [InlineKeyboardButton(text=CONSULTATION_TYPE_LABELS["call"], callback_data="cons:call")],
             [InlineKeyboardButton(text=CONSULTATION_TYPE_LABELS["message"], callback_data="cons:message")],
-            [InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:spec")],
+            [
+                InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:spec"),
+                InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+            ],
         ]
     )
 
@@ -143,7 +170,10 @@ def venue_cities():
             [InlineKeyboardButton(text=CITY_LABELS["poltava"], callback_data="city:poltava")],
             [InlineKeyboardButton(text=CITY_LABELS["brovary"], callback_data="city:brovary")],
             [InlineKeyboardButton(text=CITY_LABELS["kyiv"], callback_data="city:kyiv")],
-            [InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:kyno")],
+            [
+                InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:kyno"),
+                InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+            ],
         ]
     )
 
@@ -154,7 +184,10 @@ def cities_for_offline():
             [InlineKeyboardButton(text=CITY_LABELS["poltava"], callback_data="city:poltava")],
             [InlineKeyboardButton(text=CITY_LABELS["brovary"], callback_data="city:brovary")],
             [InlineKeyboardButton(text=CITY_LABELS["kyiv"], callback_data="city:kyiv")],
-            [InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:cons_type")],
+            [
+                InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:cons_type"),
+                InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+            ],
         ]
     )
 
@@ -179,7 +212,12 @@ def date_picker():
     if current_row:
         buttons.append(current_row)
 
-    buttons.append([InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:date")])
+    buttons.append(
+        [
+            InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:date"),
+            InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -197,7 +235,12 @@ def time_picker(date_str: str, available_times: list[str] | None = None):
     if row:
         buttons.append(row)
 
-    buttons.append([InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:time")])
+    buttons.append(
+        [
+            InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:time"),
+            InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -236,13 +279,13 @@ async def choose_specialist(callback: CallbackQuery, state: FSMContext):
 
     if spec_key == "kynologist":
         await callback.message.edit_text(
-            PROMPT_SERVICE_FORMAT,
+            _prompt_with_context(PROMPT_SERVICE_FORMAT, await state.get_data()),
             reply_markup=kynologist_types(),
         )
         await state.set_state(ConsultationStates.choosing_kyno_type)
     else:
         await callback.message.edit_text(
-            PROMPT_CONSULTATION_FORMAT,
+            _prompt_with_context(PROMPT_CONSULTATION_FORMAT, await state.get_data()),
             reply_markup=consultation_types(),
         )
         await state.set_state(ConsultationStates.choosing_cons_type)
@@ -259,10 +302,18 @@ async def kyno_type_chosen(callback: CallbackQuery, state: FSMContext):
     await state.update_data(consultation_type=consultation_type)
 
     if choice == "venue":
-        await callback.message.edit_text(PROMPT_CITY, reply_markup=venue_cities())
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_CITY, data),
+            reply_markup=venue_cities(),
+        )
         await state.set_state(ConsultationStates.choosing_city)
     else:
-        await callback.message.edit_text(PROMPT_DATE, reply_markup=date_picker())
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_DATE, data),
+            reply_markup=date_picker(),
+        )
         await state.set_state(ConsultationStates.choosing_date)
 
 
@@ -277,10 +328,18 @@ async def cons_type_chosen(callback: CallbackQuery, state: FSMContext):
     await state.update_data(consultation_type=consultation_type)
 
     if choice in {"online", "call", "message"}:
-        await callback.message.edit_text(PROMPT_DATE, reply_markup=date_picker())
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_DATE, data),
+            reply_markup=date_picker(),
+        )
         await state.set_state(ConsultationStates.choosing_date)
     else:
-        await callback.message.edit_text(PROMPT_CITY, reply_markup=cities_for_offline())
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_CITY, data),
+            reply_markup=cities_for_offline(),
+        )
         await state.set_state(ConsultationStates.choosing_city)
 
 
@@ -293,7 +352,11 @@ async def city_chosen(callback: CallbackQuery, state: FSMContext):
     city_key = callback.data.split(":")[1]
     city = CITY_LABELS[city_key]
     await state.update_data(city=city)
-    await callback.message.edit_text(PROMPT_DATE, reply_markup=date_picker())
+    data = await state.get_data()
+    await callback.message.edit_text(
+        _prompt_with_context(PROMPT_DATE, data),
+        reply_markup=date_picker(),
+    )
     await state.set_state(ConsultationStates.choosing_date)
 
 
@@ -319,7 +382,10 @@ async def date_chosen(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.message.edit_text(
-        PROMPT_TIME_FOR_DATE.format(date=format_date_for_display(date)),
+        _prompt_with_context(
+            PROMPT_TIME_FOR_DATE.format(date=format_date_for_display(date)),
+            data,
+        ),
         reply_markup=time_picker(date, available_times),
     )
     await state.set_state(ConsultationStates.choosing_time)
@@ -340,7 +406,9 @@ async def time_chosen(callback: CallbackQuery, state: FSMContext):
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text=CONFIRM_BUTTON, callback_data="confirm")],
+                [InlineKeyboardButton(text=CHANGE_TIME_BUTTON, callback_data="back:confirm_time")],
                 [InlineKeyboardButton(text=CANCEL_BUTTON, callback_data="cancel")],
+                [InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main")],
             ]
         ),
     )
@@ -433,6 +501,15 @@ async def cancel_booking(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(BOOKING_CANCELED, reply_markup=main_menu())
 
 
+@router.callback_query(lambda callback: callback.data == "home:main")
+async def go_home(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    from .start import main_menu
+
+    await callback.message.edit_text(WELCOME_CHOOSE_SPECIALIST, reply_markup=main_menu())
+
+
 @router.callback_query(lambda callback: callback.data.startswith("back:"))
 async def go_back(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -456,7 +533,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ConsultationStates.choosing_specialist)
     elif back_target == "cons_type":
         await callback.message.edit_text(
-            PROMPT_CONSULTATION_FORMAT,
+            _prompt_with_context(PROMPT_CONSULTATION_FORMAT, await state.get_data()),
             reply_markup=consultation_types(),
         )
         await state.set_state(ConsultationStates.choosing_cons_type)
@@ -470,23 +547,58 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
                 if specialist == SPECIALIST_LABELS["kynologist"]
                 else cities_for_offline()
             )
-            await callback.message.edit_text(PROMPT_CITY, reply_markup=keyboard)
+            await callback.message.edit_text(
+                _prompt_with_context(PROMPT_CITY, data),
+                reply_markup=keyboard,
+            )
             await state.set_state(ConsultationStates.choosing_city)
         elif specialist == SPECIALIST_LABELS["kynologist"]:
             await callback.message.edit_text(
-                PROMPT_SERVICE_FORMAT,
+                _prompt_with_context(PROMPT_SERVICE_FORMAT, data),
                 reply_markup=kynologist_types(),
             )
             await state.set_state(ConsultationStates.choosing_kyno_type)
         else:
             await callback.message.edit_text(
-                PROMPT_CONSULTATION_FORMAT,
+                _prompt_with_context(PROMPT_CONSULTATION_FORMAT, data),
                 reply_markup=consultation_types(),
             )
             await state.set_state(ConsultationStates.choosing_cons_type)
     elif back_target == "time":
-        await callback.message.edit_text(PROMPT_DATE, reply_markup=date_picker())
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_DATE, data),
+            reply_markup=date_picker(),
+        )
         await state.set_state(ConsultationStates.choosing_date)
+    elif back_target == "confirm_time":
+        data = await state.get_data()
+        date = data.get("date")
+        if not date:
+            await callback.message.edit_text(
+                _prompt_with_context(PROMPT_DATE, data),
+                reply_markup=date_picker(),
+            )
+            await state.set_state(ConsultationStates.choosing_date)
+            return
+
+        available_times = await _get_available_time_slots(data, date)
+        if not available_times:
+            await callback.message.edit_text(
+                _prompt_with_context(PROMPT_DATE, data),
+                reply_markup=date_picker(),
+            )
+            await state.set_state(ConsultationStates.choosing_date)
+            return
+
+        await callback.message.edit_text(
+            _prompt_with_context(
+                PROMPT_TIME_FOR_DATE.format(date=format_date_for_display(date)),
+                data,
+            ),
+            reply_markup=time_picker(date, available_times),
+        )
+        await state.set_state(ConsultationStates.choosing_time)
     else:
         await state.clear()
         from .start import main_menu
