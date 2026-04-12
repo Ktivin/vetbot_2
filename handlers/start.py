@@ -90,8 +90,10 @@ def main_menu():
                     callback_data="spec:behavior",
                 )
             ],
-            [InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings")],
-            [InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart")],
+            [
+                InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
+                InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
+            ],
         ]
     )
 
@@ -114,10 +116,10 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     if profile and profile.get("pet_name"):
         summary_lines = [
             f"{PROFILE_MENU_SUMMARY_TITLE}:",
-            f"{SUMMARY_PET_NAME}: {profile.get('pet_name', '—')}",
-            f"{SUMMARY_PET_BREED}: {profile.get('pet_breed', '—')}",
-            f"{SUMMARY_PET_AGE}: {profile.get('pet_age', '—')}",
-            f"{SUMMARY_PET_WEIGHT}: {profile.get('pet_weight', '—')}",
+            f"🐾 {SUMMARY_PET_NAME}: {profile.get('pet_name', '—')}",
+            f"🧬 {SUMMARY_PET_BREED}: {profile.get('pet_breed', '—')}",
+            f"🎂 {SUMMARY_PET_AGE}: {profile.get('pet_age', '—')}",
+            f"⚖️ {SUMMARY_PET_WEIGHT}: {profile.get('pet_weight', '—')}",
         ]
         sections.append("\n".join(summary_lines))
         sections.append(PROFILE_MENU_HINT)
