@@ -879,3 +879,22 @@ SUMMARY_NOTE = (
 BOOKING_SUCCESS_FOOTER = (
     "Ми вже передали запит фахівцю. Очікуйте, будь ласка, повідомлення з підтвердженням."
 )
+
+# Final client and admin polish
+USER_MENU_PROFILE_BUTTON = "👤 Мої дані"
+USER_PROFILE_TITLE = "Ваші дані"
+USER_PROFILE_EMPTY = "Поки що дані не заповнені. Почнімо зі знайомства нижче."
+USER_PROFILE_HINT = "За потреби дані можна оновити кнопкою нижче."
+ADMIN_FILTER_PENDING = "🆕 Нові"
+ADMIN_FILTER_CONFIRMED = "✅ Підтверджені"
+ADMIN_FILTER_CANCELLED = "❌ Скасовані"
+ADMIN_FILTER_COMPLETED = "☑️ Завершені"
+ADMIN_FILTER_TODAY = "📅 Сьогодні"
+ADMIN_FILTER_TOMORROW = "📆 Завтра"
+ADMIN_FILTER_ALL = "📚 Усі записи"
+ADMIN_ACTION_CLIENTS = "👥 Клієнти"
+ADMIN_MENU_BUTTON = "⬅️ До меню"
+ADMIN_PANEL_TITLE = (
+    "Панель адміністратора.\n"
+    "Оберіть потрібний розділ нижче."
+)

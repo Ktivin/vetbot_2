@@ -31,6 +31,12 @@ from texts import (
     USER_BOOKINGS_ACTIVE_LABEL,
     USER_BOOKINGS_LIST_TITLE,
     USER_BOOKINGS_MENU_BUTTON,
+    USER_MENU_BOOKINGS_BUTTON,
+    USER_MENU_PROFILE_BUTTON,
+    USER_PROFILE_EMPTY,
+    USER_PROFILE_HINT,
+    USER_PROFILE_TITLE,
+    PROFILE_RESTART_BUTTON,
 )
 
 
@@ -67,7 +73,10 @@ def _is_cancellable(record: dict) -> bool:
 def _bookings_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
+            [
+                InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
+                InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
+            ],
         ]
     )
 
@@ -104,7 +113,12 @@ def _user_booking_keyboard(record: dict) -> InlineKeyboardMarkup:
             ]
         )
     rows.append([InlineKeyboardButton(text=USER_BOOKINGS_BACK_BUTTON, callback_data="user:bookings")])
-    rows.append([InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")])
+    rows.append(
+        [
+            InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
+            InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -118,7 +132,10 @@ def _user_cancel_confirm_keyboard(record_id: int) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text=USER_BOOKINGS_BACK_BUTTON, callback_data=f"user:booking:{record_id}")],
-            [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
+            [
+                InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
+                InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
+            ],
         ]
     )
 
@@ -180,10 +197,48 @@ async def _render_user_bookings(target_message, user_id: int, flash_message: str
     await target_message.edit_text("\n".join(lines), reply_markup=_user_bookings_keyboard(records))
 
 
+def _user_profile_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
+                InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
+            ],
+            [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
+        ]
+    )
+
+
+async def _render_user_profile(target_message, user_id: int):
+    profile = await get_client_profile(user_id)
+    if not profile:
+        await target_message.edit_text(USER_PROFILE_EMPTY, reply_markup=_bookings_menu_keyboard())
+        return
+
+    lines = [
+        USER_PROFILE_TITLE,
+        "",
+        f"🐾 {profile.get('pet_name', '—')}",
+        f"🧬 {profile.get('pet_breed', '—')}",
+        f"🎂 {profile.get('pet_age', '—')}",
+        f"⚖️ {profile.get('pet_weight', '—')}",
+    ]
+    if profile.get("issue_description"):
+        lines.extend(["", f"💬 {profile['issue_description']}"])
+    lines.extend(["", USER_PROFILE_HINT])
+    await target_message.edit_text("\n".join(lines), reply_markup=_user_profile_keyboard())
+
+
 @router.callback_query(F.data == "user:bookings")
 async def user_bookings(callback: CallbackQuery):
     await callback.answer()
     await _render_user_bookings(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data == "user:profile")
+async def user_profile(callback: CallbackQuery):
+    await callback.answer()
+    await _render_user_profile(callback.message, callback.from_user.id)
 
 
 @router.callback_query(lambda callback: callback.data.startswith("user:booking:"))

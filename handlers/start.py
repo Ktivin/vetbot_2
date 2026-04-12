@@ -29,6 +29,7 @@ from texts import (
     PROFILE_RESTART_BUTTON,
     PROFILE_RESTART_PROMPT,
     USER_MENU_BOOKINGS_BUTTON,
+    USER_MENU_PROFILE_BUTTON,
     USER_NEXT_BOOKING_LABEL,
     PROFILE_ASK_WEIGHT,
     PROFILE_MENU_HINT,
@@ -92,6 +93,9 @@ def main_menu():
             ],
             [
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
+                InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
+            ],
+            [
                 InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
             ],
         ]
@@ -146,6 +150,8 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
             f"{format_status(next_record['status'])}"
         )
         sections.append(f"{USER_NEXT_BOOKING_LABEL}:\n{next_line}")
+
+    sections.append("🗂️ Ваші дії:\n• переглянути записи\n• переглянути дані\n• оновити знайомство")
 
     return "\n\n".join(section for section in sections if section)
 
