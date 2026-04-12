@@ -5,6 +5,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
+    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -15,12 +16,18 @@ from aiogram.types import (
 
 from database import get_client_profile, upsert_client_profile
 from texts import (
+    ONBOARDING_REQUIRED_BEFORE_BOOKING,
+    ONBOARDING_STEP_TITLE,
     PROFILE_ALREADY_SAVED,
     PROFILE_ASK_AGE,
     PROFILE_ASK_BREED,
     PROFILE_ASK_ISSUE,
     PROFILE_ASK_PET_NAME,
+    PROFILE_RESTART_BUTTON,
+    PROFILE_RESTART_PROMPT,
     PROFILE_ASK_WEIGHT,
+    PROFILE_MENU_HINT,
+    PROFILE_MENU_SUMMARY_TITLE,
     PROFILE_SAVE_ERROR,
     PROFILE_SAVE_SUCCESS,
     SPECIALIST_LABELS,
@@ -28,6 +35,10 @@ from texts import (
     START_CONTACT_REQUIRED,
     START_CONTACT_WRONG,
     START_GREETING,
+    SUMMARY_PET_AGE,
+    SUMMARY_PET_BREED,
+    SUMMARY_PET_NAME,
+    SUMMARY_PET_WEIGHT,
 )
 
 
@@ -74,16 +85,37 @@ def main_menu():
                     callback_data="spec:behavior",
                 )
             ],
+            [InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart")],
         ]
     )
 
 
 def _onboarding_step_text(step: int, text: str) -> str:
-    return f"Крок {step} із {ONBOARDING_TOTAL_STEPS}\n\n{text}"
+    return f"{ONBOARDING_STEP_TITLE}\nКрок {step} із {ONBOARDING_TOTAL_STEPS}\n\n{text}"
 
 
 async def _show_main_menu(message: Message, text: str = START_GREETING):
-    await message.answer(text, reply_markup=main_menu())
+    menu_text = await build_main_menu_text(message.from_user.id, text)
+    await message.answer(menu_text, reply_markup=main_menu())
+
+
+async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
+    profile = await get_client_profile(user_id)
+
+    sections = [heading or (PROFILE_ALREADY_SAVED if profile and profile.get("phone_number") else START_GREETING)]
+
+    if profile and profile.get("pet_name"):
+        summary_lines = [
+            f"{PROFILE_MENU_SUMMARY_TITLE}:",
+            f"{SUMMARY_PET_NAME}: {profile.get('pet_name', '—')}",
+            f"{SUMMARY_PET_BREED}: {profile.get('pet_breed', '—')}",
+            f"{SUMMARY_PET_AGE}: {profile.get('pet_age', '—')}",
+            f"{SUMMARY_PET_WEIGHT}: {profile.get('pet_weight', '—')}",
+        ]
+        sections.append("\n".join(summary_lines))
+        sections.append(PROFILE_MENU_HINT)
+
+    return "\n\n".join(section for section in sections if section)
 
 
 async def _start_onboarding(message: Message, state: FSMContext):
@@ -95,6 +127,11 @@ async def _start_onboarding(message: Message, state: FSMContext):
     )
 
 
+async def start_onboarding_from_booking(message: Message, state: FSMContext):
+    await message.answer(ONBOARDING_REQUIRED_BEFORE_BOOKING)
+    await _start_onboarding(message, state)
+
+
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     profile = await get_client_profile(message.from_user.id)
@@ -104,6 +141,14 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     await _start_onboarding(message, state)
+
+
+@router.callback_query(F.data == "profile:restart")
+async def restart_profile(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer()
+    await callback.message.answer(PROFILE_RESTART_PROMPT)
+    await _start_onboarding(callback.message, state)
 
 
 @router.message(OnboardingStates.waiting_contact, F.contact)

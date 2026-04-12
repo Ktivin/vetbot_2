@@ -20,6 +20,7 @@ from texts import (
     BOOKING_CONTEXT_TITLE,
     BOOKING_CANCELED,
     BOOKING_SUCCESS_FOOTER,
+    BOOKING_SUCCESS_MENU_HINT,
     BOOKING_SUCCESS_TITLE,
     BOOKING_STEP_CITY,
     BOOKING_STEP_CONFIRM,
@@ -274,7 +275,9 @@ async def choose_specialist(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     profile = await get_client_profile(callback.from_user.id)
     if not profile:
-        await callback.message.answer(ONBOARDING_REQUIRED_BEFORE_BOOKING)
+        from .start import start_onboarding_from_booking
+
+        await start_onboarding_from_booking(callback.message, state)
         return
 
     spec_key = callback.data.split(":")[1]
@@ -487,7 +490,16 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    await callback.message.edit_text(_format_booking_created_message(data))
+    from .start import build_main_menu_text, main_menu
+
+    success_text = "\n\n".join(
+        [
+            _format_booking_created_message(data),
+            BOOKING_SUCCESS_MENU_HINT,
+            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+        ]
+    )
+    await callback.message.edit_text(success_text, reply_markup=main_menu())
 
     admin_text = (
         f"{ADMIN_NEW_RECORD_TITLE} #{record_id}!\n\n"
@@ -518,18 +530,27 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
 async def cancel_booking(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    from .start import main_menu
+    from .start import build_main_menu_text, main_menu
 
-    await callback.message.edit_text(BOOKING_CANCELED, reply_markup=main_menu())
+    text = "\n\n".join(
+        [
+            BOOKING_CANCELED,
+            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+        ]
+    )
+    await callback.message.edit_text(text, reply_markup=main_menu())
 
 
 @router.callback_query(lambda callback: callback.data == "home:main")
 async def go_home(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    from .start import main_menu
+    from .start import build_main_menu_text, main_menu
 
-    await callback.message.edit_text(WELCOME_CHOOSE_SPECIALIST, reply_markup=main_menu())
+    await callback.message.edit_text(
+        await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+        reply_markup=main_menu(),
+    )
 
 
 @router.callback_query(lambda callback: callback.data.startswith("back:"))
@@ -538,9 +559,12 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
     back_target = callback.data.split(":")[1]
 
     if back_target == "main":
-        from .start import main_menu
+        from .start import build_main_menu_text, main_menu
 
-        await callback.message.edit_text(WELCOME_CHOOSE_SPECIALIST, reply_markup=main_menu())
+        await callback.message.edit_text(
+            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            reply_markup=main_menu(),
+        )
         await state.clear()
     elif back_target == "kyno":
         await callback.message.edit_text(
@@ -549,9 +573,12 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         )
         await state.set_state(ConsultationStates.choosing_kyno_type)
     elif back_target == "spec":
-        from .start import main_menu
+        from .start import build_main_menu_text, main_menu
 
-        await callback.message.edit_text(WELCOME_CHOOSE_SPECIALIST, reply_markup=main_menu())
+        await callback.message.edit_text(
+            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            reply_markup=main_menu(),
+        )
         await state.set_state(ConsultationStates.choosing_specialist)
     elif back_target == "cons_type":
         await callback.message.edit_text(
@@ -635,7 +662,10 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ConsultationStates.choosing_time)
     else:
         await state.clear()
-        from .start import main_menu
+        from .start import build_main_menu_text, main_menu
 
-        await callback.message.edit_text(WELCOME_CHOOSE_SPECIALIST, reply_markup=main_menu())
+        await callback.message.edit_text(
+            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            reply_markup=main_menu(),
+        )
 
