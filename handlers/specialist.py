@@ -19,8 +19,10 @@ from texts import (
     BACK_BUTTON,
     BOOKING_CONTEXT_TITLE,
     BOOKING_CANCELED,
+    BOOKING_CANCELED_MENU_TITLE,
     BOOKING_SUCCESS_FOOTER,
     BOOKING_SUCCESS_MENU_HINT,
+    BOOKING_SUCCESS_MENU_TITLE,
     BOOKING_SUCCESS_TITLE,
     BOOKING_STEP_CITY,
     BOOKING_STEP_CONFIRM,
@@ -60,6 +62,7 @@ from texts import (
     SUMMARY_TIME,
     SUMMARY_TITLE,
     SUMMARY_TYPE,
+    HOME_MENU_RETURN_TITLE,
     ONBOARDING_REQUIRED_BEFORE_BOOKING,
     WELCOME_CHOOSE_SPECIALIST,
 )
@@ -400,7 +403,10 @@ async def date_chosen(callback: CallbackQuery, state: FSMContext):
             if date == datetime.now(BUSINESS_TIMEZONE).strftime("%Y-%m-%d")
             else NO_FREE_TIMES_FOR_DATE.format(date=format_date_for_display(date))
         )
-        await callback.message.edit_text(message_text, reply_markup=date_picker())
+        await callback.message.edit_text(
+            _prompt_with_context(message_text, data, BOOKING_STEP_DATE),
+            reply_markup=date_picker(),
+        )
         await state.set_state(ConsultationStates.choosing_date)
         return
 
@@ -457,7 +463,15 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         available = await is_slot_available(specialist, date, time, city)
     except Exception:
         logger.exception("Не вдалося перевірити доступність слота.")
-        await callback.message.edit_text(CHECK_SLOT_ERROR)
+        from .start import build_main_menu_text, main_menu
+
+        error_text = "\n\n".join(
+            [
+                CHECK_SLOT_ERROR,
+                await build_main_menu_text(callback.from_user.id, HOME_MENU_RETURN_TITLE),
+            ]
+        )
+        await callback.message.edit_text(error_text, reply_markup=main_menu())
         await state.clear()
         return
 
@@ -465,8 +479,12 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         available_times = await _get_available_time_slots(data, date)
         if available_times:
             await callback.message.edit_text(
-                SLOT_ALREADY_BOOKED_WITH_ALTERNATIVES.format(
-                    date=format_date_for_display(date)
+                _prompt_with_context(
+                    SLOT_ALREADY_BOOKED_WITH_ALTERNATIVES.format(
+                        date=format_date_for_display(date)
+                    ),
+                    data,
+                    BOOKING_STEP_TIME,
                 ),
                 reply_markup=time_picker(date, available_times),
             )
@@ -474,8 +492,12 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
             return
 
         await callback.message.edit_text(
-            SLOT_ALREADY_BOOKED_PICK_ANOTHER_DATE.format(
-                date=format_date_for_display(date)
+            _prompt_with_context(
+                SLOT_ALREADY_BOOKED_PICK_ANOTHER_DATE.format(
+                    date=format_date_for_display(date)
+                ),
+                data,
+                BOOKING_STEP_DATE,
             ),
             reply_markup=date_picker(),
         )
@@ -486,7 +508,15 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         record_id = await add_consultation(data)
     except Exception:
         logger.exception("Не вдалося зберегти новий запис.")
-        await callback.message.edit_text(SAVE_BOOKING_ERROR)
+        from .start import build_main_menu_text, main_menu
+
+        error_text = "\n\n".join(
+            [
+                SAVE_BOOKING_ERROR,
+                await build_main_menu_text(callback.from_user.id, HOME_MENU_RETURN_TITLE),
+            ]
+        )
+        await callback.message.edit_text(error_text, reply_markup=main_menu())
         await state.clear()
         return
 
@@ -496,7 +526,7 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         [
             _format_booking_created_message(data),
             BOOKING_SUCCESS_MENU_HINT,
-            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            await build_main_menu_text(callback.from_user.id, BOOKING_SUCCESS_MENU_TITLE),
         ]
     )
     await callback.message.edit_text(success_text, reply_markup=main_menu())
@@ -535,7 +565,7 @@ async def cancel_booking(callback: CallbackQuery, state: FSMContext):
     text = "\n\n".join(
         [
             BOOKING_CANCELED,
-            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            await build_main_menu_text(callback.from_user.id, BOOKING_CANCELED_MENU_TITLE),
         ]
     )
     await callback.message.edit_text(text, reply_markup=main_menu())
@@ -548,7 +578,7 @@ async def go_home(callback: CallbackQuery, state: FSMContext):
     from .start import build_main_menu_text, main_menu
 
     await callback.message.edit_text(
-        await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+        await build_main_menu_text(callback.from_user.id, HOME_MENU_RETURN_TITLE),
         reply_markup=main_menu(),
     )
 
@@ -562,13 +592,14 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         from .start import build_main_menu_text, main_menu
 
         await callback.message.edit_text(
-            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            await build_main_menu_text(callback.from_user.id, HOME_MENU_RETURN_TITLE),
             reply_markup=main_menu(),
         )
         await state.clear()
     elif back_target == "kyno":
+        data = await state.get_data()
         await callback.message.edit_text(
-            PROMPT_SERVICE_FORMAT,
+            _prompt_with_context(PROMPT_SERVICE_FORMAT, data, BOOKING_STEP_FORMAT),
             reply_markup=kynologist_types(),
         )
         await state.set_state(ConsultationStates.choosing_kyno_type)
@@ -576,7 +607,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         from .start import build_main_menu_text, main_menu
 
         await callback.message.edit_text(
-            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            await build_main_menu_text(callback.from_user.id, HOME_MENU_RETURN_TITLE),
             reply_markup=main_menu(),
         )
         await state.set_state(ConsultationStates.choosing_specialist)
@@ -665,7 +696,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         from .start import build_main_menu_text, main_menu
 
         await callback.message.edit_text(
-            await build_main_menu_text(callback.from_user.id, WELCOME_CHOOSE_SPECIALIST),
+            await build_main_menu_text(callback.from_user.id, HOME_MENU_RETURN_TITLE),
             reply_markup=main_menu(),
         )
 
