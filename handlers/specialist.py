@@ -86,19 +86,25 @@ def _format_summary(data: dict) -> str:
     lines = [
         SUMMARY_TITLE,
         "",
-        f"{SUMMARY_PET_NAME}: {data['pet_name']}",
-        f"{SUMMARY_PET_BREED}: {data['pet_breed']}",
-        f"{SUMMARY_PET_AGE}: {data['pet_age']}",
-        f"{SUMMARY_PET_WEIGHT}: {data['pet_weight']}",
-        f"{SUMMARY_SPECIALIST}: {data['specialist']}",
-        f"{SUMMARY_TYPE}: {data['consultation_type']}",
-        f"{SUMMARY_DATE}: {format_date_for_display(data['date'])}",
-        f"{SUMMARY_TIME}: {data['time']}",
+        f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
+        f"🧬 {SUMMARY_PET_BREED}: {data['pet_breed']}",
+        f"🎂 {SUMMARY_PET_AGE}: {data['pet_age']}",
+        f"⚖️ {SUMMARY_PET_WEIGHT}: {data['pet_weight']}",
+        "",
+        f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
+        f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
+        f"📅 {SUMMARY_DATE}: {format_date_for_display(data['date'])}",
+        f"🕒 {SUMMARY_TIME}: {data['time']}",
     ]
     city = data.get("city", "").strip()
     if city:
-        lines.append(f"{SUMMARY_CITY}: {city}")
-    lines.append(f"{SUMMARY_ISSUE}: {data['issue_description']}")
+        lines.append(f"🏙️ {SUMMARY_CITY}: {city}")
+    lines.extend(
+        [
+            "",
+            f"💬 {SUMMARY_ISSUE}: {data['issue_description']}",
+        ]
+    )
     lines.extend(["", SUMMARY_NOTE])
     return "\n".join(lines)
 
@@ -130,15 +136,15 @@ def _format_booking_created_message(data: dict) -> str:
     lines = [
         BOOKING_SUCCESS_TITLE,
         "",
-        f"{SUMMARY_PET_NAME}: {data['pet_name']}",
-        f"{SUMMARY_SPECIALIST}: {data['specialist']}",
-        f"{SUMMARY_TYPE}: {data['consultation_type']}",
-        f"{SUMMARY_DATE}: {format_date_for_display(data['date'])}",
-        f"{SUMMARY_TIME}: {data['time']}",
+        f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
+        f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
+        f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
+        f"📅 {SUMMARY_DATE}: {format_date_for_display(data['date'])}",
+        f"🕒 {SUMMARY_TIME}: {data['time']}",
     ]
     city = data.get("city", "").strip()
     if city:
-        lines.append(f"{SUMMARY_CITY}: {city}")
+        lines.append(f"🏙️ {SUMMARY_CITY}: {city}")
     lines.extend(["", BOOKING_SUCCESS_FOOTER])
     return "\n".join(lines)
 

@@ -114,14 +114,13 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     sections = [heading or (PROFILE_ALREADY_SAVED if profile and profile.get("phone_number") else START_GREETING)]
 
     if profile and profile.get("pet_name"):
-        summary_lines = [
-            f"{PROFILE_MENU_SUMMARY_TITLE}:",
-            f"🐾 {SUMMARY_PET_NAME}: {profile.get('pet_name', '—')}",
-            f"🧬 {SUMMARY_PET_BREED}: {profile.get('pet_breed', '—')}",
-            f"🎂 {SUMMARY_PET_AGE}: {profile.get('pet_age', '—')}",
-            f"⚖️ {SUMMARY_PET_WEIGHT}: {profile.get('pet_weight', '—')}",
-        ]
-        sections.append("\n".join(summary_lines))
+        pet_summary = (
+            f"🐾 {profile.get('pet_name', '—')} • "
+            f"{profile.get('pet_breed', '—')} • "
+            f"{profile.get('pet_age', '—')} • "
+            f"{profile.get('pet_weight', '—')}"
+        )
+        sections.append(f"{PROFILE_MENU_SUMMARY_TITLE}:\n{pet_summary}")
         sections.append(PROFILE_MENU_HINT)
 
     now = datetime.now(BUSINESS_TIMEZONE)
@@ -141,13 +140,12 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     if upcoming_bookings:
         upcoming_bookings.sort(key=lambda item: item[0])
         _, next_record = upcoming_bookings[0]
-        next_lines = [
-            f"{USER_NEXT_BOOKING_LABEL}:",
-            f"• {next_record['specialist']}",
-            f"• {format_date_for_display(next_record['date'])}, {next_record['time']}",
-            f"• {format_status(next_record['status'])}",
-        ]
-        sections.append("\n".join(next_lines))
+        next_line = (
+            f"{next_record['specialist']} • "
+            f"{format_date_for_display(next_record['date'])}, {next_record['time']} • "
+            f"{format_status(next_record['status'])}"
+        )
+        sections.append(f"{USER_NEXT_BOOKING_LABEL}:\n{next_line}")
 
     return "\n\n".join(section for section in sections if section)
 

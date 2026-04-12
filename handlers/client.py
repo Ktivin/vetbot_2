@@ -16,6 +16,7 @@ from texts import (
     USER_BOOKING_CANCELLED_SUCCESS,
     USER_BOOKING_CANCEL_CONFIRM,
     USER_BOOKING_CANCEL_NOT_AVAILABLE,
+    USER_BOOKING_HISTORY_LABEL,
     USER_BOOKING_CARD_TITLE,
     USER_BOOKING_CARD_TYPE,
     USER_BOOKING_CARD_SPECIALIST,
@@ -27,6 +28,7 @@ from texts import (
     USER_BOOKINGS_BACK_BUTTON,
     USER_BOOKINGS_CANCEL_BUTTON,
     USER_BOOKINGS_EMPTY,
+    USER_BOOKINGS_ACTIVE_LABEL,
     USER_BOOKINGS_LIST_TITLE,
     USER_BOOKINGS_MENU_BUTTON,
 )
@@ -73,11 +75,12 @@ def _bookings_menu_keyboard() -> InlineKeyboardMarkup:
 def _user_bookings_keyboard(records: list[dict]) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for record in records[:8]:
+        status_emoji = "🟢" if record.get("status") == "confirmed" else "🟡" if record.get("status") == "pending" else "⚪"
         rows.append(
             [
                 InlineKeyboardButton(
                     text=(
-                        f"{format_date_for_display(record['date'])}, {record['time']} • "
+                        f"{status_emoji} {format_date_for_display(record['date'])}, {record['time']} • "
                         f"{record['specialist']}"
                     ),
                     callback_data=f"user:booking:{record['id']}",
@@ -124,17 +127,17 @@ def _booking_card_text(record: dict) -> str:
     lines = [
         USER_BOOKING_CARD_TITLE,
         "",
-        f"{USER_BOOKING_CARD_SPECIALIST}: {record['specialist']}",
-        f"{USER_BOOKING_CARD_TYPE}: {record['consultation_type']}",
-        f"{USER_BOOKING_CARD_DATE}: {format_date_for_display(record['date'])}",
-        f"{USER_BOOKING_CARD_TIME}: {record['time']}",
-        f"{USER_BOOKING_CARD_STATUS}: {format_status(record['status'])}",
+        f"👨‍⚕️ {USER_BOOKING_CARD_SPECIALIST}: {record['specialist']}",
+        f"📝 {USER_BOOKING_CARD_TYPE}: {record['consultation_type']}",
+        f"📅 {USER_BOOKING_CARD_DATE}: {format_date_for_display(record['date'])}",
+        f"🕒 {USER_BOOKING_CARD_TIME}: {record['time']}",
+        f"📌 {USER_BOOKING_CARD_STATUS}: {format_status(record['status'])}",
     ]
     if record.get("city"):
-        lines.append(f"{USER_BOOKING_CARD_CITY}: {record['city']}")
+        lines.append(f"🏙️ {USER_BOOKING_CARD_CITY}: {record['city']}")
     client_issue = (record.get("client") or {}).get("issue_description", "")
     if client_issue:
-        lines.append(f"{USER_BOOKING_CARD_ISSUE}: {client_issue}")
+        lines.append(f"💬 {USER_BOOKING_CARD_ISSUE}: {client_issue}")
     return "\n".join(lines)
 
 
@@ -150,7 +153,30 @@ async def _render_user_bookings(target_message, user_id: int, flash_message: str
         await target_message.edit_text("\n".join(lines), reply_markup=_bookings_menu_keyboard())
         return
 
+    active_records = [record for record in records if record.get("status") in {"pending", "confirmed"}]
+    history_records = [record for record in records if record.get("status") not in {"pending", "confirmed"}]
+
     lines.append(USER_BOOKINGS_LIST_TITLE)
+    if active_records:
+        next_record = active_records[0]
+        lines.extend(
+            [
+                "",
+                f"{USER_BOOKINGS_ACTIVE_LABEL}:",
+                (
+                    f"• {next_record['specialist']} • "
+                    f"{format_date_for_display(next_record['date'])}, {next_record['time']} • "
+                    f"{format_status(next_record['status'])}"
+                ),
+            ]
+        )
+    if history_records:
+        lines.extend(
+            [
+                "",
+                f"{USER_BOOKING_HISTORY_LABEL}: {len(history_records)}",
+            ]
+        )
     await target_message.edit_text("\n".join(lines), reply_markup=_user_bookings_keyboard(records))
 
 
