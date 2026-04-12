@@ -372,6 +372,33 @@ async def update_consultation_status_in_google_sheets(record_id: int, new_status
     return await asyncio.to_thread(_update_consultation_status_sync, record_id, new_status)
 
 
+async def is_slot_available_for_update_in_google_sheets(
+    record_id: int,
+    specialist: str,
+    date: str,
+    time: str,
+    city: str | None = None,
+) -> bool:
+    records = await get_consultations_from_google_sheets("all")
+    normalized_city = (city or "").strip()
+
+    for record in records:
+        if record["id"] == record_id:
+            continue
+        if record["specialist"] != specialist or record["date"] != date or record["time"] != time:
+            continue
+        if record["status"] not in {"pending", "confirmed"}:
+            continue
+        record_city = (record.get("city", "") or "").strip()
+        if normalized_city:
+            if record_city == normalized_city:
+                return False
+        else:
+            if not record_city:
+                return False
+    return True
+
+
 async def is_slot_available_in_google_sheets(
     specialist: str,
     date: str,
@@ -408,6 +435,51 @@ async def get_admin_counts_from_google_sheets() -> dict[str, int]:
         "today": sum(1 for record in records if record["date"] == today),
         "tomorrow": sum(1 for record in records if record["date"] == tomorrow),
     }
+
+
+def _update_consultation_schedule_sync(record_id: int, date: str, time_value: str) -> bool:
+    worksheet = _get_worksheet_sync(
+        GOOGLE_SHEETS_CONSULTATIONS_WORKSHEET_NAME,
+        CONSULTATION_HEADERS,
+        rows=2000,
+        cols=20,
+    )
+    row_index = _find_consultation_row_index(worksheet, record_id)
+    if row_index is None:
+        return False
+
+    _run_with_retries_sync(
+        lambda: worksheet.update(f"G{row_index}:H{row_index}", [[date, time_value]]),
+        f"Перенесення запису {record_id}",
+    )
+
+    cached_records = _consultations_cache.get("records")
+    if cached_records:
+        updated_records = []
+        for record in cached_records:
+            updated_record = dict(record)
+            if updated_record["id"] == record_id:
+                updated_record["date"] = date
+                updated_record["time"] = time_value
+            updated_records.append(updated_record)
+        updated_records.sort(key=lambda item: (item["date"], item["time"], item["created_at"], item["id"]))
+        _set_cached_consultations(updated_records)
+    else:
+        _invalidate_consultations_cache()
+
+    logger.info(
+        "Запис %s перенесено в Google Sheets на %s %s.",
+        record_id,
+        date,
+        time_value,
+    )
+    return True
+
+
+async def update_consultation_schedule_in_google_sheets(record_id: int, date: str, time_value: str) -> bool:
+    if not _is_configured():
+        return False
+    return await asyncio.to_thread(_update_consultation_schedule_sync, record_id, date, time_value)
 
 
 def _rewrite_consultations_sync(records: list[dict]) -> int:

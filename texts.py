@@ -338,6 +338,45 @@ ONBOARDING_REQUIRED_BEFORE_BOOKING = (
     "Спершу коротко познайомимося, а далі одразу перейдемо до запису."
 )
 
+USER_MENU_BOOKINGS_BUTTON = "📅 Мої записи"
+USER_NEXT_BOOKING_LABEL = "Найближчий запис"
+USER_BOOKINGS_MENU_BUTTON = "🏠 На головну"
+USER_BOOKINGS_BACK_BUTTON = "⬅️ До записів"
+USER_BOOKINGS_OPEN_BUTTON = "Відкрити запис"
+USER_BOOKINGS_CANCEL_BUTTON = "❌ Скасувати запис"
+USER_BOOKINGS_LIST_TITLE = "Ваші записи. Оберіть потрібний запис нижче:"
+USER_BOOKINGS_EMPTY = (
+    "Поки що у вас немає активних записів.\n"
+    "Коли будете готові, можна оформити новий запис нижче."
+)
+USER_BOOKING_CARD_TITLE = "Деталі запису"
+USER_BOOKING_CARD_SPECIALIST = "Фахівець"
+USER_BOOKING_CARD_TYPE = "Формат"
+USER_BOOKING_CARD_DATE = "Дата"
+USER_BOOKING_CARD_TIME = "Час"
+USER_BOOKING_CARD_STATUS = "Статус"
+USER_BOOKING_CARD_CITY = "Місто"
+USER_BOOKING_CARD_ISSUE = "Запит"
+USER_BOOKING_CANCEL_CONFIRM = (
+    "Якщо ви справді хочете скасувати цей запис, підтвердьте дію кнопкою нижче."
+)
+USER_BOOKING_CANCELLED_SUCCESS = (
+    "Запис скасовано.\n"
+    "За потреби ви завжди можете оформити новий запис трохи пізніше."
+)
+USER_BOOKING_CANCEL_NOT_AVAILABLE = "Цей запис уже не можна скасувати через меню."
+USER_BOOKING_RESCHEDULED = "📅 Ваш запис було перенесено адміністратором."
+
+ADMIN_ACTION_RESCHEDULE = "📅 Перенести"
+ADMIN_RESCHEDULE_TITLE = "Оберіть нову дату для запису:"
+ADMIN_RESCHEDULE_TIME_TITLE = "Оберіть новий час на {date}:"
+ADMIN_RESCHEDULE_NO_TIMES = (
+    "На обрану дату вільних слотів зараз немає.\n"
+    "Будь ласка, оберіть іншу дату."
+)
+ADMIN_RESCHEDULE_SUCCESS = "Запис успішно перенесено."
+ADMIN_RESCHEDULE_ERROR = "❌ Не вдалося перенести запис. Спробуйте ще раз трохи пізніше."
+
 # Final UX polish overrides
 START_GREETING = (
     "Вітаємо! 🐾\n\n"

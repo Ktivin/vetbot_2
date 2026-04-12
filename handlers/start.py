@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -14,7 +15,9 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from database import get_client_profile, upsert_client_profile
+from config import BUSINESS_TIMEZONE
+from database import get_client_profile, get_consultations_for_user, upsert_client_profile
+from formatting import format_date_for_display, format_status
 from texts import (
     ONBOARDING_REQUIRED_BEFORE_BOOKING,
     ONBOARDING_STEP_TITLE,
@@ -25,6 +28,8 @@ from texts import (
     PROFILE_ASK_PET_NAME,
     PROFILE_RESTART_BUTTON,
     PROFILE_RESTART_PROMPT,
+    USER_MENU_BOOKINGS_BUTTON,
+    USER_NEXT_BOOKING_LABEL,
     PROFILE_ASK_WEIGHT,
     PROFILE_MENU_HINT,
     PROFILE_MENU_SUMMARY_TITLE,
@@ -85,6 +90,7 @@ def main_menu():
                     callback_data="spec:behavior",
                 )
             ],
+            [InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings")],
             [InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart")],
         ]
     )
@@ -101,6 +107,7 @@ async def _show_main_menu(message: Message, text: str = START_GREETING):
 
 async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     profile = await get_client_profile(user_id)
+    bookings = await get_consultations_for_user(user_id)
 
     sections = [heading or (PROFILE_ALREADY_SAVED if profile and profile.get("phone_number") else START_GREETING)]
 
@@ -114,6 +121,31 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
         ]
         sections.append("\n".join(summary_lines))
         sections.append(PROFILE_MENU_HINT)
+
+    now = datetime.now(BUSINESS_TIMEZONE)
+    upcoming_bookings = []
+    for record in bookings:
+        if record.get("status") not in {"pending", "confirmed"}:
+            continue
+        try:
+            record_dt = datetime.fromisoformat(f"{record['date']}T{record['time']}:00").replace(
+                tzinfo=BUSINESS_TIMEZONE
+            )
+        except (KeyError, ValueError):
+            continue
+        if record_dt >= now:
+            upcoming_bookings.append((record_dt, record))
+
+    if upcoming_bookings:
+        upcoming_bookings.sort(key=lambda item: item[0])
+        _, next_record = upcoming_bookings[0]
+        next_lines = [
+            f"{USER_NEXT_BOOKING_LABEL}:",
+            f"• {next_record['specialist']}",
+            f"• {format_date_for_display(next_record['date'])}, {next_record['time']}",
+            f"• {format_status(next_record['status'])}",
+        ]
+        sections.append("\n".join(next_lines))
 
     return "\n\n".join(section for section in sections if section)
 

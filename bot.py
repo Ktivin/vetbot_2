@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import BOT_TOKEN, BUSINESS_TIMEZONE
 from database import delete_old_consultations, init_db
-from handlers import admin, specialist, start
+from handlers import admin, client, specialist, start
 from handlers.errors import register_global_error_handler
 from integrations.google_sheets_consultations import (
     acquire_polling_lock,
@@ -49,6 +49,7 @@ async def main():
     # Порядок роутерів важливий.
     dp.include_router(admin.router)
     dp.include_router(start.router)
+    dp.include_router(client.router)
     dp.include_router(specialist.router)
 
     # Планувальник для щоденної автоочистки записів.

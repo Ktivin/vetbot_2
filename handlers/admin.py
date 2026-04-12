@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
@@ -15,14 +15,18 @@ from database import (
     get_consultation_by_id,
     get_consultations,
     get_consultations_for_user,
+    is_slot_available_for_update,
     search_client_profiles,
+    update_consultation_schedule,
     update_consultation_status,
 )
 from formatting import (
+    format_date_for_button,
     format_date_for_display,
     format_datetime_for_display,
     format_status,
     format_username,
+    get_available_times,
 )
 from texts import (
     ADMIN_ACTION_CANCEL,
@@ -36,6 +40,7 @@ from texts import (
     ADMIN_ACTION_OPEN_NEXT_BOOKING,
     ADMIN_ACTION_OPEN_LAST_BOOKING,
     ADMIN_ACTION_PREVIOUS,
+    ADMIN_ACTION_RESCHEDULE,
     ADMIN_ACTION_RESET_BACK,
     ADMIN_ACTION_RESET_CONFIRM,
     ADMIN_ACTION_RESET_PROFILE,
@@ -89,6 +94,11 @@ from texts import (
     ADMIN_NO_RECORDS,
     ADMIN_PANEL_TITLE,
     ADMIN_RECORD_NOT_FOUND,
+    ADMIN_RESCHEDULE_ERROR,
+    ADMIN_RESCHEDULE_NO_TIMES,
+    ADMIN_RESCHEDULE_SUCCESS,
+    ADMIN_RESCHEDULE_TIME_TITLE,
+    ADMIN_RESCHEDULE_TITLE,
     ADMIN_SEARCH_EMPTY,
     ADMIN_SEARCH_TITLE,
     ADMIN_SEARCH_TOO_MANY,
@@ -99,6 +109,7 @@ from texts import (
     USER_BOOKING_CANCELLED,
     USER_BOOKING_COMPLETED,
     USER_BOOKING_CONFIRMED,
+    USER_BOOKING_RESCHEDULED,
 )
 
 
@@ -235,6 +246,14 @@ def _admin_record_keyboard(
                 ),
             ]
         )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=ADMIN_ACTION_RESCHEDULE,
+                    callback_data=f"admin:reschedule:{record['id']}:{filter_name}:{page}",
+                )
+            ]
+        )
     elif status == "confirmed":
         rows.append(
             [
@@ -246,6 +265,14 @@ def _admin_record_keyboard(
                     text=ADMIN_ACTION_CANCEL,
                     callback_data=f"admin:action:{record['id']}:cancel:{filter_name}:{page}",
                 ),
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=ADMIN_ACTION_RESCHEDULE,
+                    callback_data=f"admin:reschedule:{record['id']}:{filter_name}:{page}",
+                )
             ]
         )
 
@@ -548,6 +575,91 @@ def _user_status_message(record: dict, new_status: str) -> str | None:
     if new_status == "completed":
         return USER_BOOKING_COMPLETED + "\n" + "\n".join(details)
     return None
+
+
+def _admin_reschedule_date_keyboard(record_id: int, filter_name: str, page: int) -> InlineKeyboardMarkup:
+    buttons: list[list[InlineKeyboardButton]] = []
+    today = datetime.now(BUSINESS_TIMEZONE)
+    row: list[InlineKeyboardButton] = []
+
+    for offset in range(7):
+        date_value = today + timedelta(days=offset)
+        date_str = date_value.strftime("%Y-%m-%d")
+        row.append(
+            InlineKeyboardButton(
+                text=format_date_for_button(date_value),
+                callback_data=f"admin:reschedule_date:{record_id}:{filter_name}:{page}:{date_str}",
+            )
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+
+    if row:
+        buttons.append(row)
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text=ADMIN_ACTION_PREVIOUS,
+                callback_data=f"admin:list:{filter_name}:{page}",
+            ),
+            InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu"),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _admin_reschedule_time_keyboard(
+    record_id: int,
+    filter_name: str,
+    page: int,
+    date_value: str,
+    available_times: list[str],
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    current_row: list[InlineKeyboardButton] = []
+    for time_value in available_times:
+        time_key = time_value.replace(":", ".")
+        current_row.append(
+            InlineKeyboardButton(
+                text=time_value,
+                callback_data=f"admin:reschedule_time:{record_id}:{filter_name}:{page}:{date_value}:{time_key}",
+            )
+        )
+        if len(current_row) == 2:
+            rows.append(current_row)
+            current_row = []
+
+    if current_row:
+        rows.append(current_row)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=ADMIN_ACTION_PREVIOUS,
+                callback_data=f"admin:reschedule:{record_id}:{filter_name}:{page}",
+            ),
+            InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu"),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _get_admin_available_times(record: dict, date_value: str) -> list[str]:
+    candidate_times = get_available_times(date_value)
+    available_times: list[str] = []
+    for time_value in candidate_times:
+        is_available = await is_slot_available_for_update(
+            record["id"],
+            record["specialist"],
+            date_value,
+            time_value,
+            record.get("city", ""),
+        )
+        if is_available:
+            available_times.append(time_value)
+    return available_times
 
 
 async def _render_admin_menu(target_message: Message):
@@ -929,6 +1041,141 @@ async def admin_client_reset(callback: CallbackQuery):
     except Exception:
         logger.exception("Не вдалося очистити анкету клієнта %s.", user_id)
         await callback.answer(ADMIN_CLIENT_RESET_ERROR, show_alert=True)
+
+
+@router.callback_query(lambda callback: callback.data.startswith("admin:reschedule:"))
+async def admin_reschedule_prompt(callback: CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    _, _, record_id_str, filter_name, page_str = callback.data.split(":")
+    record = await get_consultation_by_id(int(record_id_str))
+    if not record:
+        await callback.answer(ADMIN_RECORD_NOT_FOUND, show_alert=True)
+        return
+
+    await callback.answer()
+    await callback.message.edit_text(
+        f"{_admin_record_text(record, int(page_str), max(int(page_str) + 1, 1), filter_name)}\n\n{ADMIN_RESCHEDULE_TITLE}",
+        reply_markup=_admin_reschedule_date_keyboard(record["id"], filter_name, int(page_str)),
+    )
+
+
+@router.callback_query(lambda callback: callback.data.startswith("admin:reschedule_date:"))
+async def admin_reschedule_date(callback: CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    _, _, record_id_str, filter_name, page_str, date_value = callback.data.split(":")
+    record = await get_consultation_by_id(int(record_id_str))
+    if not record:
+        await callback.answer(ADMIN_RECORD_NOT_FOUND, show_alert=True)
+        return
+
+    available_times = await _get_admin_available_times(record, date_value)
+    if not available_times:
+        await callback.answer()
+        await callback.message.edit_text(
+            f"{_admin_record_text(record, int(page_str), max(int(page_str) + 1, 1), filter_name)}\n\n"
+            f"{ADMIN_RESCHEDULE_NO_TIMES}",
+            reply_markup=_admin_reschedule_date_keyboard(record["id"], filter_name, int(page_str)),
+        )
+        return
+
+    await callback.answer()
+    await callback.message.edit_text(
+        f"{_admin_record_text(record, int(page_str), max(int(page_str) + 1, 1), filter_name)}\n\n"
+        f"{ADMIN_RESCHEDULE_TIME_TITLE.format(date=format_date_for_display(date_value))}",
+        reply_markup=_admin_reschedule_time_keyboard(
+            record["id"],
+            filter_name,
+            int(page_str),
+            date_value,
+            available_times,
+        ),
+    )
+
+
+@router.callback_query(lambda callback: callback.data.startswith("admin:reschedule_time:"))
+async def admin_reschedule_time(callback: CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    _, _, record_id_str, filter_name, page_str, date_value, time_key = callback.data.split(":")
+    record_id = int(record_id_str)
+    page = int(page_str)
+    time_value = time_key.replace(".", ":")
+
+    try:
+        record = await get_consultation_by_id(record_id)
+        if not record:
+            await callback.answer(ADMIN_RECORD_NOT_FOUND, show_alert=True)
+            return
+
+        is_available = await is_slot_available_for_update(
+            record_id,
+            record["specialist"],
+            date_value,
+            time_value,
+            record.get("city", ""),
+        )
+        if not is_available:
+            available_times = await _get_admin_available_times(record, date_value)
+            if not available_times:
+                await callback.message.edit_text(
+                    f"{_admin_record_text(record, page, max(page + 1, 1), filter_name)}\n\n"
+                    f"{ADMIN_RESCHEDULE_NO_TIMES}",
+                    reply_markup=_admin_reschedule_date_keyboard(record_id, filter_name, page),
+                )
+                await callback.answer()
+                return
+
+            await callback.message.edit_text(
+                f"{_admin_record_text(record, page, max(page + 1, 1), filter_name)}\n\n"
+                f"{ADMIN_RESCHEDULE_TIME_TITLE.format(date=format_date_for_display(date_value))}",
+                reply_markup=_admin_reschedule_time_keyboard(
+                    record_id,
+                    filter_name,
+                    page,
+                    date_value,
+                    available_times,
+                ),
+            )
+            await callback.answer()
+            return
+
+        updated = await update_consultation_schedule(record_id, date_value, time_value)
+        if not updated:
+            await callback.answer(ADMIN_RESCHEDULE_ERROR, show_alert=True)
+            return
+
+        user_message = (
+            USER_BOOKING_RESCHEDULED
+            + "\n\n"
+            + f"Спеціаліст: {record['specialist']}\n"
+            + f"Тип консультації: {record['consultation_type']}\n"
+            + f"Дата: {format_date_for_display(date_value)}\n"
+            + f"Час: {time_value}"
+        )
+        if record.get("city"):
+            user_message += f"\nМісто: {record['city']}"
+
+        try:
+            await callback.bot.send_message(record["user_id"], user_message)
+        except Exception:
+            logger.exception(
+                "Не вдалося надіслати користувачу повідомлення про перенесення запису %s.",
+                record_id,
+            )
+
+        await callback.answer(ADMIN_RESCHEDULE_SUCCESS)
+        await _render_admin_list(callback.message, filter_name, page)
+    except Exception:
+        logger.exception("Не вдалося перенести запис %s.", record_id)
+        await callback.answer(ADMIN_RESCHEDULE_ERROR, show_alert=True)
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:action:"))

@@ -12,6 +12,8 @@ from integrations.google_sheets_consultations import (
     get_consultations_from_google_sheets,
     is_google_sheets_consultations_enabled,
     is_slot_available_in_google_sheets,
+    is_slot_available_for_update_in_google_sheets,
+    update_consultation_schedule_in_google_sheets,
     update_consultation_status_in_google_sheets,
 )
 from integrations.google_sheets_store import get_client_profile_from_google_sheets
@@ -379,6 +381,19 @@ async def update_consultation_status(record_id: int, new_status: str) -> bool:
         return cursor.rowcount > 0
 
 
+async def update_consultation_schedule(record_id: int, date: str, time_value: str) -> bool:
+    if is_google_sheets_consultations_enabled():
+        return await update_consultation_schedule_in_google_sheets(record_id, date, time_value)
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "UPDATE consultations SET date = ?, time = ? WHERE id = ?",
+            (date, time_value, record_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def get_admin_counts() -> dict[str, int]:
     if is_google_sheets_consultations_enabled():
         return await get_admin_counts_from_google_sheets()
@@ -461,6 +476,43 @@ async def is_slot_available(
                 "AND status IN ('pending', 'confirmed')"
             )
             params = (specialist, date, time, city)
+
+        async with db.execute(query, params) as cursor:
+            result = await cursor.fetchone()
+            return result is None
+
+
+async def is_slot_available_for_update(
+    record_id: int,
+    specialist: str,
+    date: str,
+    time: str,
+    city: str | None = None,
+) -> bool:
+    if is_google_sheets_consultations_enabled():
+        return await is_slot_available_for_update_in_google_sheets(
+            record_id,
+            specialist,
+            date,
+            time,
+            city,
+        )
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        if not city or city.strip() == "":
+            query = (
+                "SELECT 1 FROM consultations "
+                "WHERE id != ? AND specialist = ? AND date = ? AND time = ? "
+                "AND status IN ('pending', 'confirmed')"
+            )
+            params = (record_id, specialist, date, time)
+        else:
+            query = (
+                "SELECT 1 FROM consultations "
+                "WHERE id != ? AND specialist = ? AND date = ? AND time = ? AND city = ? "
+                "AND status IN ('pending', 'confirmed')"
+            )
+            params = (record_id, specialist, date, time, city)
 
         async with db.execute(query, params) as cursor:
             result = await cursor.fetchone()
