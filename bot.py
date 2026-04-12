@@ -15,6 +15,7 @@ from handlers import admin, specialist, start
 from handlers.errors import register_global_error_handler
 from integrations.google_sheets_consultations import (
     acquire_polling_lock,
+    get_polling_lock_details,
     release_polling_lock,
     refresh_polling_lock,
 )
@@ -32,7 +33,8 @@ async def _polling_lock_heartbeat(owner: str, interval_seconds: int = 45) -> Non
         await asyncio.sleep(interval_seconds)
         refreshed = await refresh_polling_lock(owner)
         if not refreshed:
-            logger.error("Р СњР Вµ Р Р†Р Т‘Р В°Р В»Р С•РЎРѓРЎРЏ Р С—РЎР‚Р С•Р Т‘Р С•Р Р†Р В¶Р С‘РЎвЂљР С‘ polling lock Р Т‘Р В»РЎРЏ РЎвЂ“Р Р…РЎРѓРЎвЂљР В°Р Р…РЎРѓРЎС“ %s.", owner)
+            logger.error("Не вдалося продовжити polling lock для інстансу %s.", owner)
+            return
 
 
 async def main():
@@ -44,12 +46,12 @@ async def main():
     dp = Dispatcher()
     register_global_error_handler(dp)
 
-    # Р СџР С•РЎР‚РЎРЏР Т‘Р С•Р С” Р Р†Р В°Р В¶Р В»Р С‘Р Р†Р С‘Р в„–.
+    # Порядок роутерів важливий.
     dp.include_router(admin.router)
     dp.include_router(start.router)
     dp.include_router(specialist.router)
 
-    # === Р СњР В°Р В»Р В°РЎв‚¬РЎвЂљРЎС“Р Р†Р В°Р Р…Р Р…РЎРЏ Р С—Р В»Р В°Р Р…РЎС“Р Р†Р В°Р В»РЎРЉР Р…Р С‘Р С”Р В° ===
+    # Планувальник для щоденної автоочистки записів.
     scheduler = AsyncIOScheduler(timezone=BUSINESS_TIMEZONE)
     scheduler.add_job(
         delete_old_consultations,
@@ -57,13 +59,18 @@ async def main():
         id="cleanup_old_records",
     )
     scheduler.start()
-    logger.info("Р С’Р Р†РЎвЂљР С•Р С•РЎвЂЎР С‘РЎРѓРЎвЂљР С”РЎС“ Р В·Р В°Р С—Р С‘РЎРѓРЎвЂ“Р Р† Р В·Р В°Р С—Р В»Р В°Р Р…Р С•Р Р†Р В°Р Р…Р С• РЎвЂ°Р С•Р Т‘Р Р…РЎРЏ Р С• 03:00.")
+    logger.info("Автоочистку записів заплановано щодня о 03:00.")
     instance_owner = f"{socket.gethostname()}:{os.getpid()}"
     has_lock = await acquire_polling_lock(instance_owner)
     if not has_lock:
+        lock_details = await get_polling_lock_details()
+        current_owner = (lock_details or {}).get("owner", "")
+        expires_at = (lock_details or {}).get("expires_at", "")
         logger.error(
-            "Р—Р°РїСѓСЃРє Р·СѓРїРёРЅРµРЅРѕ: С–РЅС€РёР№ С–РЅСЃС‚Р°РЅСЃ СѓР¶Рµ РѕР±СЂРѕР±Р»СЏС” polling РґР»СЏ С†СЊРѕРіРѕ Р±РѕС‚Р°. "
-            "Р—Р°Р»РёС€С‚Рµ Р°РєС‚РёРІРЅРёРј Р»РёС€Рµ РѕРґРёРЅ Р·Р°РїСѓСЃРє."
+            "Запуск зупинено: інший інстанс уже обробляє polling для цього бота. "
+            "Поточний власник lock: %s. Lock активний до: %s.",
+            current_owner or "невідомо",
+            expires_at or "невідомо",
         )
         scheduler.shutdown(wait=False)
         await bot.session.close()
@@ -73,15 +80,15 @@ async def main():
 
 
     try:
-        logger.info("Р вЂР С•РЎвЂљ Р В·Р В°Р С—РЎС“РЎвЂ°Р ВµР Р…Р С•.")
+        logger.info("Бота запущено.")
         await dp.start_polling(
             bot,
             allowed_updates=dp.resolve_used_update_types(),
         )
     except KeyboardInterrupt:
-        logger.info("Р вЂР С•РЎвЂљ Р В·РЎС“Р С—Р С‘Р Р…Р ВµР Р…Р С• Р Р†РЎР‚РЎС“РЎвЂЎР Р…РЎС“.")
+        logger.info("Бота зупинено вручну.")
     except Exception:
-        logger.exception("Р вЂР С•РЎвЂљ Р В·Р В°Р Р†Р ВµРЎР‚РЎв‚¬Р С‘Р Р† РЎР‚Р С•Р В±Р С•РЎвЂљРЎС“ РЎвЂЎР ВµРЎР‚Р ВµР В· Р Р…Р ВµР С•РЎвЂЎРЎвЂ“Р С”РЎС“Р Р†Р В°Р Р…РЎС“ Р С—Р С•Р СР С‘Р В»Р С”РЎС“.")
+        logger.exception("Бот завершив роботу через неочікувану помилку.")
         raise
     finally:
         heartbeat_task.cancel()

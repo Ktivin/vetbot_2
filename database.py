@@ -15,6 +15,10 @@ from integrations.google_sheets_consultations import (
     update_consultation_status_in_google_sheets,
 )
 from integrations.google_sheets_store import get_client_profile_from_google_sheets
+from integrations.google_sheets_store import (
+    delete_client_profile_from_google_sheets,
+    get_all_client_profiles_from_google_sheets,
+)
 
 
 DB_NAME = "consultations.db"
@@ -162,6 +166,12 @@ async def get_consultations(filter_name: str = "all") -> list[dict]:
     elif filter_name == "confirmed":
         clauses.append("status = ?")
         params.append("confirmed")
+    elif filter_name == "cancelled":
+        clauses.append("status = ?")
+        params.append("cancelled")
+    elif filter_name == "completed":
+        clauses.append("status = ?")
+        params.append("completed")
     elif filter_name == "today":
         clauses.append("date = ?")
         params.append(today.isoformat())
@@ -193,6 +203,25 @@ async def get_consultation_by_id(record_id: int) -> dict | None:
             return _row_to_consultation(row)
 
 
+async def get_consultations_for_user(user_id: int, limit: int | None = None) -> list[dict]:
+    if is_google_sheets_consultations_enabled():
+        records = await get_consultations_from_google_sheets("all")
+        user_records = [record for record in records if record["user_id"] == user_id]
+        user_records.sort(key=lambda item: (item["date"], item["time"], item["created_at"], item["id"]), reverse=True)
+        return user_records[:limit] if limit is not None else user_records
+
+    query = "SELECT * FROM consultations WHERE user_id = ? ORDER BY date DESC, time DESC, created_at DESC"
+    params: tuple[int, ...] = (user_id,)
+    if limit is not None:
+        query += " LIMIT ?"
+        params = (user_id, limit)
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            return [_row_to_consultation(row) for row in rows]
+
+
 async def get_client_profile(user_id: int) -> dict | None:
     local_profile = await _get_client_profile_local(user_id)
     if local_profile:
@@ -205,6 +234,51 @@ async def get_client_profile(user_id: int) -> dict | None:
     cached_profile = await upsert_client_profile(google_profile, sync_to_google=False)
     logger.info("Профіль клієнта %s відновлено з Google Sheets у локальний кеш.", user_id)
     return cached_profile
+
+
+async def get_all_client_profiles() -> list[dict]:
+    if is_google_sheets_consultations_enabled():
+        google_profiles = await get_all_client_profiles_from_google_sheets()
+        if google_profiles:
+            return google_profiles
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            """
+            SELECT * FROM clients
+            ORDER BY updated_at DESC, created_at DESC, user_id DESC
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [_row_to_client(row) for row in rows]
+
+
+async def search_client_profiles(query: str, limit: int = 8) -> list[dict]:
+    normalized_query = query.strip().lower()
+    if not normalized_query:
+        return []
+
+    profiles = await get_all_client_profiles()
+    results: list[dict] = []
+
+    for profile in profiles:
+        haystacks = [
+            str(profile.get("user_id", "")),
+            str(profile.get("username", "")),
+            str(profile.get("first_name", "")),
+            str(profile.get("last_name", "")),
+            str(profile.get("phone_number", "")),
+            str(profile.get("pet_name", "")),
+            str(profile.get("pet_breed", "")),
+            str(profile.get("issue_description", "")),
+        ]
+        searchable_text = " ".join(haystacks).lower()
+        if normalized_query in searchable_text:
+            results.append(profile)
+        if len(results) >= limit:
+            break
+
+    return results
 
 
 async def upsert_client_profile(data: dict, sync_to_google: bool = True) -> dict:
@@ -277,6 +351,21 @@ async def upsert_client_profile(data: dict, sync_to_google: bool = True) -> dict
     return profile
 
 
+async def delete_client_profile(user_id: int) -> bool:
+    deleted_local = False
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("DELETE FROM clients WHERE user_id = ?", (user_id,))
+        await db.commit()
+        deleted_local = cursor.rowcount > 0
+
+    deleted_google = False
+    if is_google_sheets_consultations_enabled():
+        deleted_google = await delete_client_profile_from_google_sheets(user_id)
+
+    return deleted_local or deleted_google
+
+
 async def update_consultation_status(record_id: int, new_status: str) -> bool:
     if is_google_sheets_consultations_enabled():
         return await update_consultation_status_in_google_sheets(record_id, new_status)
@@ -314,6 +403,18 @@ async def get_admin_counts() -> dict[str, int]:
             ("confirmed",),
         ) as cursor:
             counts["confirmed"] = (await cursor.fetchone())[0]
+
+        async with db.execute(
+            "SELECT COUNT(*) FROM consultations WHERE status = ?",
+            ("cancelled",),
+        ) as cursor:
+            counts["cancelled"] = (await cursor.fetchone())[0]
+
+        async with db.execute(
+            "SELECT COUNT(*) FROM consultations WHERE status = ?",
+            ("completed",),
+        ) as cursor:
+            counts["completed"] = (await cursor.fetchone())[0]
 
         async with db.execute(
             "SELECT COUNT(*) FROM consultations WHERE date = ?",

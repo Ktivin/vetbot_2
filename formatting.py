@@ -54,6 +54,18 @@ def format_date_for_display(date_str: str) -> str:
     return f"{date.strftime('%d.%m.%Y')}, {WEEKDAYS_FULL[date.weekday()]}"
 
 
+def format_datetime_for_display(value: str | None) -> str:
+    if not value:
+        return "—"
+
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+
+    return dt.astimezone(BUSINESS_TIMEZONE).strftime("%d.%m.%Y %H:%M")
+
+
 def format_status(status: str) -> str:
     return STATUS_LABELS.get(status, status)
 
