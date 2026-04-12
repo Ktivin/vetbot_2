@@ -897,7 +897,7 @@ async def admin_client_reset_prompt(callback: CallbackQuery):
         await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
         return
 
-    _, _, _, user_id_str, page_str = callback.data.split(":")
+    _, _, user_id_str, page_str = callback.data.split(":")
 
     try:
         await _render_client_reset_prompt(callback.message, int(user_id_str), int(page_str))
