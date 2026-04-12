@@ -17,12 +17,20 @@ from formatting import (
 from texts import (
     ADMIN_NEW_RECORD_TITLE,
     BACK_BUTTON,
+    BOOKING_CONTEXT_TITLE,
     BOOKING_CANCELED,
     BOOKING_SUCCESS_FOOTER,
     BOOKING_SUCCESS_TITLE,
+    BOOKING_STEP_CITY,
+    BOOKING_STEP_CONFIRM,
+    BOOKING_STEP_DATE,
+    BOOKING_STEP_FORMAT,
+    BOOKING_STEP_SPECIALIST,
+    BOOKING_STEP_TIME,
     CANCEL_BUTTON,
     CHECK_SLOT_ERROR,
     CITY_LABELS,
+    CHANGE_DATE_BUTTON,
     CHANGE_TIME_BUTTON,
     CONFIRM_BUTTON,
     CONSULTATION_TYPE_LABELS,
@@ -103,11 +111,15 @@ def _step_context(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _prompt_with_context(prompt: str, data: dict) -> str:
+def _prompt_with_context(prompt: str, data: dict, step_title: str | None = None) -> str:
     context = _step_context(data)
-    if not context:
-        return prompt
-    return f"{context}\n\n{prompt}"
+    sections: list[str] = []
+    if step_title:
+        sections.append(step_title)
+    if context:
+        sections.append(f"{BOOKING_CONTEXT_TITLE}:\n{context}")
+    sections.append(prompt)
+    return "\n\n".join(sections)
 
 
 def _format_booking_created_message(data: dict) -> str:
@@ -279,13 +291,21 @@ async def choose_specialist(callback: CallbackQuery, state: FSMContext):
 
     if spec_key == "kynologist":
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_SERVICE_FORMAT, await state.get_data()),
+            _prompt_with_context(
+                PROMPT_SERVICE_FORMAT,
+                await state.get_data(),
+                BOOKING_STEP_FORMAT,
+            ),
             reply_markup=kynologist_types(),
         )
         await state.set_state(ConsultationStates.choosing_kyno_type)
     else:
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_CONSULTATION_FORMAT, await state.get_data()),
+            _prompt_with_context(
+                PROMPT_CONSULTATION_FORMAT,
+                await state.get_data(),
+                BOOKING_STEP_FORMAT,
+            ),
             reply_markup=consultation_types(),
         )
         await state.set_state(ConsultationStates.choosing_cons_type)
@@ -304,14 +324,14 @@ async def kyno_type_chosen(callback: CallbackQuery, state: FSMContext):
     if choice == "venue":
         data = await state.get_data()
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_CITY, data),
+            _prompt_with_context(PROMPT_CITY, data, BOOKING_STEP_CITY),
             reply_markup=venue_cities(),
         )
         await state.set_state(ConsultationStates.choosing_city)
     else:
         data = await state.get_data()
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_DATE, data),
+            _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
             reply_markup=date_picker(),
         )
         await state.set_state(ConsultationStates.choosing_date)
@@ -330,14 +350,14 @@ async def cons_type_chosen(callback: CallbackQuery, state: FSMContext):
     if choice in {"online", "call", "message"}:
         data = await state.get_data()
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_DATE, data),
+            _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
             reply_markup=date_picker(),
         )
         await state.set_state(ConsultationStates.choosing_date)
     else:
         data = await state.get_data()
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_CITY, data),
+            _prompt_with_context(PROMPT_CITY, data, BOOKING_STEP_CITY),
             reply_markup=cities_for_offline(),
         )
         await state.set_state(ConsultationStates.choosing_city)
@@ -354,7 +374,7 @@ async def city_chosen(callback: CallbackQuery, state: FSMContext):
     await state.update_data(city=city)
     data = await state.get_data()
     await callback.message.edit_text(
-        _prompt_with_context(PROMPT_DATE, data),
+        _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
         reply_markup=date_picker(),
     )
     await state.set_state(ConsultationStates.choosing_date)
@@ -385,6 +405,7 @@ async def date_chosen(callback: CallbackQuery, state: FSMContext):
         _prompt_with_context(
             PROMPT_TIME_FOR_DATE.format(date=format_date_for_display(date)),
             data,
+            BOOKING_STEP_TIME,
         ),
         reply_markup=time_picker(date, available_times),
     )
@@ -402,10 +423,11 @@ async def time_chosen(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     await callback.message.edit_text(
-        _format_summary(data),
+        f"{BOOKING_STEP_CONFIRM}\n\n{_format_summary(data)}",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text=CONFIRM_BUTTON, callback_data="confirm")],
+                [InlineKeyboardButton(text=CHANGE_DATE_BUTTON, callback_data="back:confirm_date")],
                 [InlineKeyboardButton(text=CHANGE_TIME_BUTTON, callback_data="back:confirm_time")],
                 [InlineKeyboardButton(text=CANCEL_BUTTON, callback_data="cancel")],
                 [InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main")],
@@ -533,7 +555,11 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ConsultationStates.choosing_specialist)
     elif back_target == "cons_type":
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_CONSULTATION_FORMAT, await state.get_data()),
+            _prompt_with_context(
+                PROMPT_CONSULTATION_FORMAT,
+                await state.get_data(),
+                BOOKING_STEP_FORMAT,
+            ),
             reply_markup=consultation_types(),
         )
         await state.set_state(ConsultationStates.choosing_cons_type)
@@ -548,26 +574,33 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
                 else cities_for_offline()
             )
             await callback.message.edit_text(
-                _prompt_with_context(PROMPT_CITY, data),
+                _prompt_with_context(PROMPT_CITY, data, BOOKING_STEP_CITY),
                 reply_markup=keyboard,
             )
             await state.set_state(ConsultationStates.choosing_city)
         elif specialist == SPECIALIST_LABELS["kynologist"]:
             await callback.message.edit_text(
-                _prompt_with_context(PROMPT_SERVICE_FORMAT, data),
+                _prompt_with_context(PROMPT_SERVICE_FORMAT, data, BOOKING_STEP_FORMAT),
                 reply_markup=kynologist_types(),
             )
             await state.set_state(ConsultationStates.choosing_kyno_type)
         else:
             await callback.message.edit_text(
-                _prompt_with_context(PROMPT_CONSULTATION_FORMAT, data),
+                _prompt_with_context(PROMPT_CONSULTATION_FORMAT, data, BOOKING_STEP_FORMAT),
                 reply_markup=consultation_types(),
             )
             await state.set_state(ConsultationStates.choosing_cons_type)
     elif back_target == "time":
         data = await state.get_data()
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_DATE, data),
+            _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
+            reply_markup=date_picker(),
+        )
+        await state.set_state(ConsultationStates.choosing_date)
+    elif back_target == "confirm_date":
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
             reply_markup=date_picker(),
         )
         await state.set_state(ConsultationStates.choosing_date)
@@ -576,7 +609,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         date = data.get("date")
         if not date:
             await callback.message.edit_text(
-                _prompt_with_context(PROMPT_DATE, data),
+                _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
                 reply_markup=date_picker(),
             )
             await state.set_state(ConsultationStates.choosing_date)
@@ -585,7 +618,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
         available_times = await _get_available_time_slots(data, date)
         if not available_times:
             await callback.message.edit_text(
-                _prompt_with_context(PROMPT_DATE, data),
+                _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
                 reply_markup=date_picker(),
             )
             await state.set_state(ConsultationStates.choosing_date)
@@ -595,6 +628,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
             _prompt_with_context(
                 PROMPT_TIME_FOR_DATE.format(date=format_date_for_display(date)),
                 data,
+                BOOKING_STEP_TIME,
             ),
             reply_markup=time_picker(date, available_times),
         )

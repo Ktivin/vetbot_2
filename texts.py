@@ -253,6 +253,7 @@ ONBOARDING_REQUIRED_BEFORE_BOOKING = (
 
 # UX polish
 HOME_BUTTON = "🏠 На головну"
+CHANGE_DATE_BUTTON = "📅 Змінити дату"
 CHANGE_TIME_BUTTON = "🕒 Змінити час"
 BOOKING_CANCELED = "Запис скасовано. Якщо буде зручно, ви завжди можете оформити новий запис трохи пізніше."
 BOOKING_SUCCESS_FOOTER = "Очікуйте, будь ласка, повідомлення з підтвердженням. За потреби ми швидко уточнимо деталі."
@@ -260,6 +261,13 @@ PROMPT_DATE = "Оберіть зручну дату для запису:"
 PROMPT_TIME = "Оберіть зручний час:"
 PROMPT_TIME_FOR_DATE = "Оберіть зручний час на {date}:"
 SUMMARY_NOTE = "Якщо все вказано правильно, підтвердьте запис нижче або поверніться, щоб змінити час."
+BOOKING_STEP_SPECIALIST = "Крок 1 із 5"
+BOOKING_STEP_FORMAT = "Крок 2 із 5"
+BOOKING_STEP_CITY = "Крок 3 із 5"
+BOOKING_STEP_DATE = "Крок 4 із 5"
+BOOKING_STEP_TIME = "Крок 5 із 5"
+BOOKING_STEP_CONFIRM = "Підтвердження запису"
+BOOKING_CONTEXT_TITLE = "Поточний вибір"
 
 # Admin data management
 ADMIN_PANEL_TITLE = "Панель адміністратора. Оберіть потрібний розділ:"
