@@ -189,12 +189,44 @@ def _consultation_to_row(record: dict) -> list[str]:
 
 def _normalize_consultation(record: dict) -> dict:
     normalized = dict(record)
+    date_value = normalized.get("date", "")
+    city_value = normalized.get("city", "")
+
+    # Backward compatibility for rows written before communication_method
+    # was inserted into the sheet schema. In those rows values are shifted:
+    # communication_method=old city, city=old date, date=old time, time=old status.
+    if (
+        city_value
+        and isinstance(city_value, str)
+        and len(city_value) == 10
+        and city_value[4:5] == "-"
+        and city_value[7:8] == "-"
+        and (not isinstance(date_value, str) or len(str(date_value)) != 10 or str(date_value)[4:5] != "-")
+    ):
+        old_city = normalized.get("communication_method", "") or ""
+        old_date = normalized.get("city", "") or ""
+        old_time = normalized.get("date", "") or ""
+        old_status = normalized.get("time", "") or ""
+        old_created_at = normalized.get("status", "") or ""
+
+        normalized["communication_method"] = ""
+        normalized["city"] = old_city
+        normalized["date"] = old_date
+        normalized["time"] = old_time
+        normalized["status"] = old_status
+        normalized["created_at"] = old_created_at
+
     normalized["id"] = int(normalized["id"])
     normalized["user_id"] = int(normalized["user_id"])
     normalized["username"] = normalized.get("username", "") or ""
     normalized["communication_method"] = normalized.get("communication_method", "") or ""
     normalized["city"] = normalized.get("city", "") or ""
+    normalized["date"] = str(normalized.get("date", "") or "")
+    normalized["time"] = str(normalized.get("time", "") or "")
     normalized["status"] = normalized.get("status", "pending") or "pending"
+    if normalized["status"] not in {"pending", "confirmed", "cancelled", "completed"}:
+        normalized["status"] = "pending"
+    normalized["created_at"] = str(normalized.get("created_at", "") or "")
     return normalized
 
 

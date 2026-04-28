@@ -31,8 +31,12 @@ STATUS_LABELS = {
 }
 
 
-def parse_iso_date(date_str: str) -> datetime:
-    return datetime.strptime(date_str, "%Y-%m-%d")
+def parse_iso_date(date_str: str | int | None) -> datetime:
+    if isinstance(date_str, datetime):
+        return date_str
+    if date_str is None:
+        raise ValueError("date is missing")
+    return datetime.strptime(str(date_str), "%Y-%m-%d")
 
 
 def format_date_for_button(date: datetime) -> str:
@@ -49,8 +53,11 @@ def format_date_for_button(date: datetime) -> str:
     return f"{prefix}, {date.strftime('%d.%m')}"
 
 
-def format_date_for_display(date_str: str) -> str:
-    date = parse_iso_date(date_str)
+def format_date_for_display(date_str: str | int | None) -> str:
+    try:
+        date = parse_iso_date(date_str)
+    except (TypeError, ValueError):
+        return str(date_str or "—")
     return f"{date.strftime('%d.%m.%Y')}, {WEEKDAYS_FULL[date.weekday()]}"
 
 
