@@ -18,6 +18,13 @@ CONSULTATION_TYPE_LABELS = {
     "message": "Консультація в месенджері",
 }
 
+COMMUNICATION_METHOD_LABELS = {
+    "phone": "Телефонний дзвінок",
+    "telegram": "Telegram",
+    "meet": "Google Meet",
+}
+OFFLINE_COMMUNICATION_LABEL = "Особиста зустріч"
+
 CITY_LABELS = {
     "poltava": "Полтава",
     "brovary": "Бровари",
@@ -70,6 +77,7 @@ PROMPT_TIME = "Оберіть час:"
 SUMMARY_TITLE = "Будь ласка, перевірте дані запису:"
 SUMMARY_SPECIALIST = "Спеціаліст"
 SUMMARY_TYPE = "Тип консультації"
+SUMMARY_COMMUNICATION = "Спосіб зв’язку"
 SUMMARY_DATE = "Дата"
 SUMMARY_TIME = "Час"
 SUMMARY_CITY = "Місто"
@@ -139,6 +147,7 @@ ADMIN_CARD_FILTER = "Фільтр"
 ADMIN_CARD_STATUS = "Статус"
 ADMIN_CARD_SPECIALIST = "Спеціаліст"
 ADMIN_CARD_TYPE = "Тип консультації"
+ADMIN_CARD_COMMUNICATION = "Спосіб зв’язку"
 ADMIN_CARD_DATE = "Дата"
 ADMIN_CARD_TIME = "Час"
 ADMIN_CARD_CITY = "Місто"
@@ -436,6 +445,7 @@ USER_BOOKINGS_EMPTY = (
 USER_BOOKING_CARD_TITLE = "Деталі запису"
 USER_BOOKING_CARD_SPECIALIST = "Фахівець"
 USER_BOOKING_CARD_TYPE = "Формат"
+USER_BOOKING_CARD_COMMUNICATION = "Спосіб зв’язку"
 USER_BOOKING_CARD_DATE = "Дата"
 USER_BOOKING_CARD_TIME = "Час"
 USER_BOOKING_CARD_STATUS = "Статус"
@@ -898,3 +908,18 @@ ADMIN_PANEL_TITLE = (
     "Панель адміністратора.\n"
     "Оберіть потрібний розділ нижче."
 )
+
+PROMPT_COMMUNICATION_METHOD = "Оберіть, будь ласка, зручний спосіб зв’язку:"
+BOOKING_STEP_COMMUNICATION = "Крок 3 із 6"
+BOOKING_STEP_CITY = "Крок 4 із 6"
+BOOKING_STEP_DATE = "Крок 5 із 6"
+BOOKING_STEP_TIME = "Крок 6 із 6"
+ADMIN_ACTION_MESSAGE = "✉️ Написати клієнту"
+ADMIN_MESSAGE_PROMPT = (
+    "Напишіть одне повідомлення для клієнта.\n"
+    "Я надішлю його від імені бота."
+)
+ADMIN_MESSAGE_CANCEL = "Скасувати надсилання"
+ADMIN_MESSAGE_SENT = "Повідомлення клієнту надіслано."
+ADMIN_MESSAGE_SEND_ERROR = "❌ Не вдалося надіслати повідомлення клієнту."
+ADMIN_MESSAGE_EMPTY = "Будь ласка, надішліть текстове повідомлення одним повідомленням."

@@ -20,6 +20,7 @@ CONSULTATION_HEADERS = [
     "username",
     "specialist",
     "consultation_type",
+    "communication_method",
     "city",
     "date",
     "time",
@@ -177,6 +178,7 @@ def _consultation_to_row(record: dict) -> list[str]:
         record.get("username", ""),
         record.get("specialist", ""),
         record.get("consultation_type", ""),
+        record.get("communication_method", ""),
         record.get("city", ""),
         record.get("date", ""),
         record.get("time", ""),
@@ -190,6 +192,7 @@ def _normalize_consultation(record: dict) -> dict:
     normalized["id"] = int(normalized["id"])
     normalized["user_id"] = int(normalized["user_id"])
     normalized["username"] = normalized.get("username", "") or ""
+    normalized["communication_method"] = normalized.get("communication_method", "") or ""
     normalized["city"] = normalized.get("city", "") or ""
     normalized["status"] = normalized.get("status", "pending") or "pending"
     return normalized
@@ -285,6 +288,7 @@ def _add_consultation_sync(data: dict) -> int:
         "username": data.get("username", ""),
         "specialist": data["specialist"],
         "consultation_type": data["consultation_type"],
+        "communication_method": data.get("communication_method", ""),
         "city": data.get("city", ""),
         "date": data["date"],
         "time": data["time"],
@@ -449,7 +453,7 @@ def _update_consultation_schedule_sync(record_id: int, date: str, time_value: st
         return False
 
     _run_with_retries_sync(
-        lambda: worksheet.update(f"G{row_index}:H{row_index}", [[date, time_value]]),
+        lambda: worksheet.update(f"H{row_index}:I{row_index}", [[date, time_value]]),
         f"Перенесення запису {record_id}",
     )
 
@@ -492,7 +496,7 @@ def _rewrite_consultations_sync(records: list[dict]) -> int:
     all_rows = [CONSULTATION_HEADERS] + [_consultation_to_row(record) for record in records]
     _run_with_retries_sync(lambda: worksheet.clear(), "Очищення вкладки консультацій")
     _run_with_retries_sync(
-        lambda: worksheet.update(f"A1:J{len(all_rows)}", all_rows),
+        lambda: worksheet.update(f"A1:{_column_letter(len(CONSULTATION_HEADERS))}{len(all_rows)}", all_rows),
         "Перезапис вкладки консультацій",
     )
     _set_cached_consultations(records)

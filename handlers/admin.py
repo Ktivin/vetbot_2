@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import ADMIN_USER_IDS, BUSINESS_TIMEZONE
@@ -33,6 +35,7 @@ from texts import (
     ADMIN_ACTION_CLIENTS,
     ADMIN_ACTION_BACK_TO_CLIENT,
     ADMIN_ACTION_COMPLETE,
+    ADMIN_ACTION_MESSAGE,
     ADMIN_ACTION_CONFIRM,
     ADMIN_ACTION_NEXT,
     ADMIN_ACTION_OPEN_CLIENT,
@@ -46,6 +49,7 @@ from texts import (
     ADMIN_ACTION_RESET_PROFILE,
     ADMIN_ACCESS_DENIED,
     ADMIN_CARD_CITY,
+    ADMIN_CARD_COMMUNICATION,
     ADMIN_CARD_CLIENT_ACTIVITY,
     ADMIN_CARD_CREATED_AT,
     ADMIN_CARD_DATE,
@@ -90,6 +94,11 @@ from texts import (
     ADMIN_FILTER_TODAY,
     ADMIN_FILTER_TOMORROW,
     ADMIN_LOAD_ERROR,
+    ADMIN_MESSAGE_CANCEL,
+    ADMIN_MESSAGE_EMPTY,
+    ADMIN_MESSAGE_PROMPT,
+    ADMIN_MESSAGE_SEND_ERROR,
+    ADMIN_MESSAGE_SENT,
     ADMIN_MENU_BUTTON,
     ADMIN_NO_RECORDS,
     ADMIN_PANEL_TITLE,
@@ -115,6 +124,12 @@ from texts import (
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+class AdminMessageStates(StatesGroup):
+    waiting_message_text = State()
+
+
 FILTER_LABELS = {
     "pending": ADMIN_FILTER_PENDING,
     "confirmed": ADMIN_FILTER_CONFIRMED,
@@ -205,6 +220,7 @@ def _admin_record_text(
         f"⚖️ {ADMIN_CARD_PET_WEIGHT}: {client.get('pet_weight', '—') or '—'}",
         f"👨‍⚕️ {ADMIN_CARD_SPECIALIST}: {record['specialist']}",
         f"📝 {ADMIN_CARD_TYPE}: {record['consultation_type']}",
+        f"📲 {ADMIN_CARD_COMMUNICATION}: {record.get('communication_method', '—') or '—'}",
         f"📅 {ADMIN_CARD_DATE}: {format_date_for_display(record['date'])}",
         f"🕒 {ADMIN_CARD_TIME}: {record['time']}",
         f"📌 {ADMIN_CARD_STATUS}: {format_status(record['status'])}",
@@ -306,6 +322,14 @@ def _admin_record_keyboard(
         ),
     ]
     rows.append(quick_row)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=ADMIN_ACTION_MESSAGE,
+                callback_data=f"admin:message:{record['user_id']}:{record['id']}",
+            )
+        ]
+    )
 
     if next_active_record_id is not None and next_active_record_id != record["id"]:
         rows.append(
@@ -436,6 +460,15 @@ def _client_record_keyboard(
             )
         ]
     ]
+    rows.insert(
+        0,
+        [
+            InlineKeyboardButton(
+                text=ADMIN_ACTION_MESSAGE,
+                callback_data=f"admin:message:{profile['user_id']}:0",
+            )
+        ],
+    )
 
     if next_active_record_id is not None:
         rows.insert(
@@ -507,6 +540,19 @@ def _client_reset_confirmation_keyboard(user_id: int, page: int) -> InlineKeyboa
                 ),
             ],
             [InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu")],
+        ]
+    )
+
+
+def _admin_message_prompt_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=ADMIN_MESSAGE_CANCEL,
+                    callback_data="admin:message_cancel",
+                )
+            ]
         ]
     )
 
@@ -876,6 +922,93 @@ async def admin_find_client(message: Message, command: CommandObject):
     if len(results) >= 8:
         text += f"\n\n{ADMIN_SEARCH_TOO_MANY}"
     await message.answer(text, reply_markup=_search_results_keyboard(results))
+
+
+@router.callback_query(lambda callback: callback.data.startswith("admin:message:"))
+async def admin_message_prompt(callback: CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    _, _, user_id_str, source_record_id_str = callback.data.split(":")
+    user_id = int(user_id_str)
+    source_record_id = int(source_record_id_str)
+
+    await state.set_state(AdminMessageStates.waiting_message_text)
+    await state.update_data(
+        admin_target_user_id=user_id,
+        admin_source_record_id=source_record_id,
+        admin_prompt_chat_id=callback.message.chat.id,
+        admin_prompt_message_id=callback.message.message_id,
+    )
+    await callback.answer()
+    await callback.message.edit_text(
+        ADMIN_MESSAGE_PROMPT,
+        reply_markup=_admin_message_prompt_keyboard(),
+    )
+
+
+@router.callback_query(lambda callback: callback.data == "admin:message_cancel")
+async def admin_message_cancel(callback: CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    await state.clear()
+    await callback.answer()
+    await _render_admin_menu(callback.message)
+
+
+@router.message(AdminMessageStates.waiting_message_text)
+async def admin_send_message_to_client(message: Message, state: FSMContext):
+    if not _is_admin(message.from_user.id):
+        await message.answer(ADMIN_ACCESS_DENIED)
+        return
+
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer(ADMIN_MESSAGE_EMPTY)
+        return
+
+    data = await state.get_data()
+    target_user_id = data.get("admin_target_user_id")
+    prompt_chat_id = data.get("admin_prompt_chat_id")
+    prompt_message_id = data.get("admin_prompt_message_id")
+
+    if not target_user_id:
+        await state.clear()
+        await message.answer(ADMIN_LOAD_ERROR)
+        return
+
+    outgoing_text = f"✉️ Повідомлення від адміністратора\n\n{text}"
+
+    try:
+        await message.bot.send_message(target_user_id, outgoing_text)
+    except Exception:
+        logger.exception("Не вдалося надіслати повідомлення клієнту %s.", target_user_id)
+        await state.clear()
+        await message.answer(ADMIN_MESSAGE_SEND_ERROR)
+        return
+
+    await state.clear()
+
+    try:
+        if prompt_chat_id and prompt_message_id:
+            counts = await get_admin_counts()
+            clients = await get_all_client_profiles()
+            panel_text = ADMIN_PANEL_TITLE
+            if counts.get("all", 0) == 0:
+                panel_text = f"{ADMIN_PANEL_TITLE}\n\n{ADMIN_NO_RECORDS}"
+            await message.bot.edit_message_text(
+                panel_text,
+                chat_id=prompt_chat_id,
+                message_id=prompt_message_id,
+                reply_markup=_admin_menu_keyboard(counts, len(clients)),
+            )
+    except Exception:
+        logger.exception("Не вдалося повернути адміністратора до меню після надсилання повідомлення.")
+
+    await message.answer(ADMIN_MESSAGE_SENT)
 
 
 @router.callback_query(lambda callback: callback.data == "admin:menu")

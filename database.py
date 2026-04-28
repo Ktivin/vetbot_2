@@ -31,6 +31,7 @@ CONSULTATION_COLUMNS = (
     "username",
     "specialist",
     "consultation_type",
+    "communication_method",
     "city",
     "date",
     "time",
@@ -85,6 +86,7 @@ async def init_db():
                 username TEXT,
                 specialist TEXT,
                 consultation_type TEXT,
+                communication_method TEXT,
                 city TEXT,
                 date TEXT,
                 time TEXT,
@@ -93,6 +95,12 @@ async def init_db():
             )
             """
         )
+        async with db.execute("PRAGMA table_info(consultations)") as cursor:
+            columns = [row[1] for row in await cursor.fetchall()]
+        if "communication_method" not in columns:
+            await db.execute(
+                "ALTER TABLE consultations ADD COLUMN communication_method TEXT DEFAULT ''"
+            )
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS clients (
@@ -122,14 +130,18 @@ async def add_consultation(data: dict) -> int:
         cursor = await db.execute(
             """
             INSERT INTO consultations
-            (user_id, username, specialist, consultation_type, city, date, time, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (
+                user_id, username, specialist, consultation_type,
+                communication_method, city, date, time, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["user_id"],
                 data.get("username", ""),
                 data["specialist"],
                 data["consultation_type"],
+                data.get("communication_method", ""),
                 data.get("city", ""),
                 data["date"],
                 data["time"],

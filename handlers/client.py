@@ -24,6 +24,7 @@ from texts import (
     USER_BOOKING_CARD_TIME,
     USER_BOOKING_CARD_STATUS,
     USER_BOOKING_CARD_CITY,
+    USER_BOOKING_CARD_COMMUNICATION,
     USER_BOOKING_CARD_ISSUE,
     USER_BOOKINGS_BACK_BUTTON,
     USER_BOOKINGS_CANCEL_BUTTON,
@@ -146,6 +147,7 @@ def _booking_card_text(record: dict) -> str:
         "",
         f"👨‍⚕️ {USER_BOOKING_CARD_SPECIALIST}: {record['specialist']}",
         f"📝 {USER_BOOKING_CARD_TYPE}: {record['consultation_type']}",
+        f"📲 {USER_BOOKING_CARD_COMMUNICATION}: {record.get('communication_method', '—') or '—'}",
         f"📅 {USER_BOOKING_CARD_DATE}: {format_date_for_display(record['date'])}",
         f"🕒 {USER_BOOKING_CARD_TIME}: {record['time']}",
         f"📌 {USER_BOOKING_CARD_STATUS}: {format_status(record['status'])}",
@@ -299,6 +301,7 @@ async def user_cancel_booking(callback: CallbackQuery):
         f"Користувач: {format_username(record.get('username'))} (ID: {record['user_id']})\n"
         f"Спеціаліст: {record['specialist']}\n"
         f"Тип: {record['consultation_type']}\n"
+        f"Спосіб зв’язку: {record.get('communication_method', '—') or '—'}\n"
         f"Дата: {format_date_for_display(record['date'])} о {record['time']}"
     )
     if record.get("city"):

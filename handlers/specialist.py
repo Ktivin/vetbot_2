@@ -35,13 +35,16 @@ from texts import (
     CITY_LABELS,
     CHANGE_DATE_BUTTON,
     CHANGE_TIME_BUTTON,
+    COMMUNICATION_METHOD_LABELS,
     CONFIRM_BUTTON,
     CONSULTATION_TYPE_LABELS,
     HOME_BUTTON,
     KYNOLOGIST_TYPE_LABELS,
     NO_FREE_TIMES_FOR_DATE,
     NO_TIMES_LEFT_FOR_TODAY,
+    OFFLINE_COMMUNICATION_LABEL,
     PROMPT_CITY,
+    PROMPT_COMMUNICATION_METHOD,
     PROMPT_CONSULTATION_FORMAT,
     PROMPT_DATE,
     PROMPT_SERVICE_FORMAT,
@@ -51,6 +54,7 @@ from texts import (
     SLOT_ALREADY_BOOKED_WITH_ALTERNATIVES,
     SPECIALIST_LABELS,
     SUMMARY_CITY,
+    SUMMARY_COMMUNICATION,
     SUMMARY_DATE,
     SUMMARY_ISSUE,
     SUMMARY_NOTE,
@@ -65,6 +69,7 @@ from texts import (
     HOME_MENU_RETURN_TITLE,
     ONBOARDING_REQUIRED_BEFORE_BOOKING,
     WELCOME_CHOOSE_SPECIALIST,
+    BOOKING_STEP_COMMUNICATION,
 )
 
 
@@ -76,6 +81,7 @@ class ConsultationStates(StatesGroup):
     choosing_specialist = State()
     choosing_kyno_type = State()
     choosing_cons_type = State()
+    choosing_communication = State()
     choosing_city = State()
     choosing_date = State()
     choosing_time = State()
@@ -93,6 +99,7 @@ def _format_summary(data: dict) -> str:
         "",
         f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
         f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
+        f"📲 {SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
         f"📅 {SUMMARY_DATE}: {format_date_for_display(data['date'])}",
         f"🕒 {SUMMARY_TIME}: {data['time']}",
     ]
@@ -115,6 +122,8 @@ def _step_context(data: dict) -> str:
         lines.append(f"{SUMMARY_SPECIALIST}: {data['specialist']}")
     if data.get("consultation_type"):
         lines.append(f"{SUMMARY_TYPE}: {data['consultation_type']}")
+    if data.get("communication_method"):
+        lines.append(f"{SUMMARY_COMMUNICATION}: {data['communication_method']}")
     city = data.get("city", "").strip()
     if city:
         lines.append(f"{SUMMARY_CITY}: {city}")
@@ -139,6 +148,7 @@ def _format_booking_created_message(data: dict) -> str:
         f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
         f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
         f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
+        f"📲 {SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
         f"📅 {SUMMARY_DATE}: {format_date_for_display(data['date'])}",
         f"🕒 {SUMMARY_TIME}: {data['time']}",
     ]
@@ -180,6 +190,20 @@ def consultation_types():
             [InlineKeyboardButton(text=CONSULTATION_TYPE_LABELS["message"], callback_data="cons:message")],
             [
                 InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:spec"),
+                InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
+            ],
+        ]
+    )
+
+
+def communication_methods():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=COMMUNICATION_METHOD_LABELS["phone"], callback_data="comm:phone")],
+            [InlineKeyboardButton(text=COMMUNICATION_METHOD_LABELS["telegram"], callback_data="comm:telegram")],
+            [InlineKeyboardButton(text=COMMUNICATION_METHOD_LABELS["meet"], callback_data="comm:meet")],
+            [
+                InlineKeyboardButton(text=BACK_BUTTON, callback_data="back:comm"),
                 InlineKeyboardButton(text=HOME_BUTTON, callback_data="home:main"),
             ],
         ]
@@ -334,19 +358,28 @@ async def kyno_type_chosen(callback: CallbackQuery, state: FSMContext):
     await state.update_data(consultation_type=consultation_type)
 
     if choice == "venue":
+        await state.update_data(communication_method=OFFLINE_COMMUNICATION_LABEL)
         data = await state.get_data()
         await callback.message.edit_text(
             _prompt_with_context(PROMPT_CITY, data, BOOKING_STEP_CITY),
             reply_markup=venue_cities(),
         )
         await state.set_state(ConsultationStates.choosing_city)
-    else:
+    elif choice == "training":
+        await state.update_data(communication_method=OFFLINE_COMMUNICATION_LABEL)
         data = await state.get_data()
         await callback.message.edit_text(
             _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
             reply_markup=date_picker(),
         )
         await state.set_state(ConsultationStates.choosing_date)
+    else:
+        data = await state.get_data()
+        await callback.message.edit_text(
+            _prompt_with_context(PROMPT_COMMUNICATION_METHOD, data, BOOKING_STEP_COMMUNICATION),
+            reply_markup=communication_methods(),
+        )
+        await state.set_state(ConsultationStates.choosing_communication)
 
 
 @router.callback_query(
@@ -362,17 +395,34 @@ async def cons_type_chosen(callback: CallbackQuery, state: FSMContext):
     if choice in {"online", "call", "message"}:
         data = await state.get_data()
         await callback.message.edit_text(
-            _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
-            reply_markup=date_picker(),
+            _prompt_with_context(PROMPT_COMMUNICATION_METHOD, data, BOOKING_STEP_COMMUNICATION),
+            reply_markup=communication_methods(),
         )
-        await state.set_state(ConsultationStates.choosing_date)
+        await state.set_state(ConsultationStates.choosing_communication)
     else:
+        await state.update_data(communication_method=OFFLINE_COMMUNICATION_LABEL)
         data = await state.get_data()
         await callback.message.edit_text(
             _prompt_with_context(PROMPT_CITY, data, BOOKING_STEP_CITY),
             reply_markup=cities_for_offline(),
         )
         await state.set_state(ConsultationStates.choosing_city)
+
+
+@router.callback_query(
+    lambda callback: callback.data.startswith("comm:"),
+    ConsultationStates.choosing_communication,
+)
+async def communication_chosen(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    choice = callback.data.split(":")[1]
+    await state.update_data(communication_method=COMMUNICATION_METHOD_LABELS[choice])
+    data = await state.get_data()
+    await callback.message.edit_text(
+        _prompt_with_context(PROMPT_DATE, data, BOOKING_STEP_DATE),
+        reply_markup=date_picker(),
+    )
+    await state.set_state(ConsultationStates.choosing_date)
 
 
 @router.callback_query(
@@ -547,6 +597,7 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         f"Вага: {data['pet_weight']}\n"
         f"Спеціаліст: {data['specialist']}\n"
         f"Тип: {data['consultation_type']}\n"
+        f"Спосіб зв’язку: {data.get('communication_method', '—')}\n"
         f"Дата: {format_date_for_display(data['date'])} о {data['time']}\n"
         f"Запит: {data['issue_description']}\n"
     )
@@ -630,6 +681,7 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
     elif back_target == "date":
         data = await state.get_data()
         specialist = data.get("specialist")
+        communication_method = data.get("communication_method", "")
 
         if _needs_city_selection(data):
             keyboard = (
@@ -642,6 +694,12 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
                 reply_markup=keyboard,
             )
             await state.set_state(ConsultationStates.choosing_city)
+        elif communication_method and communication_method != OFFLINE_COMMUNICATION_LABEL:
+            await callback.message.edit_text(
+                _prompt_with_context(PROMPT_COMMUNICATION_METHOD, data, BOOKING_STEP_COMMUNICATION),
+                reply_markup=communication_methods(),
+            )
+            await state.set_state(ConsultationStates.choosing_communication)
         elif specialist == SPECIALIST_LABELS["kynologist"]:
             await callback.message.edit_text(
                 _prompt_with_context(PROMPT_SERVICE_FORMAT, data, BOOKING_STEP_FORMAT),
@@ -661,6 +719,21 @@ async def go_back(callback: CallbackQuery, state: FSMContext):
             reply_markup=date_picker(),
         )
         await state.set_state(ConsultationStates.choosing_date)
+    elif back_target == "comm":
+        data = await state.get_data()
+        specialist = data.get("specialist")
+        if specialist == SPECIALIST_LABELS["kynologist"]:
+            await callback.message.edit_text(
+                _prompt_with_context(PROMPT_SERVICE_FORMAT, data, BOOKING_STEP_FORMAT),
+                reply_markup=kynologist_types(),
+            )
+            await state.set_state(ConsultationStates.choosing_kyno_type)
+        else:
+            await callback.message.edit_text(
+                _prompt_with_context(PROMPT_CONSULTATION_FORMAT, data, BOOKING_STEP_FORMAT),
+                reply_markup=consultation_types(),
+            )
+            await state.set_state(ConsultationStates.choosing_cons_type)
     elif back_target == "confirm_date":
         data = await state.get_data()
         await callback.message.edit_text(
