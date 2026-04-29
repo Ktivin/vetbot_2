@@ -45,6 +45,7 @@ from texts import (
     SUMMARY_PET_BREED,
     SUMMARY_PET_NAME,
     SUMMARY_PET_WEIGHT,
+    USER_MENU_CONTACT_ADMIN_BUTTON,
 )
 
 
@@ -94,6 +95,12 @@ def main_menu():
             [
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
                 InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=USER_MENU_CONTACT_ADMIN_BUTTON,
+                    callback_data="user:contact_admin",
+                ),
             ],
             [
                 InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
@@ -151,7 +158,13 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
         )
         sections.append(f"{USER_NEXT_BOOKING_LABEL}:\n{next_line}")
 
-    sections.append("🗂️ Ваші дії:\n• переглянути записи\n• переглянути дані\n• оновити знайомство")
+    sections.append(
+        "🗂️ Ваші дії:\n"
+        "• переглянути записи\n"
+        "• переглянути дані\n"
+        "• написати адміністратору\n"
+        "• оновити знайомство"
+    )
 
     return "\n\n".join(section for section in sections if section)
 
@@ -294,6 +307,10 @@ async def save_issue_description(message: Message, state: FSMContext):
 
 @router.message()
 async def fallback(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state and not current_state.startswith(f"{OnboardingStates.__name__}:"):
+        return
+
     profile = await get_client_profile(message.from_user.id)
     if profile and profile.get("phone_number"):
         await state.clear()

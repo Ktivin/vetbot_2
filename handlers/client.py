@@ -1,7 +1,9 @@
 from datetime import datetime
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import ADMIN_USER_IDS, BUSINESS_TIMEZONE
 from database import (
@@ -32,6 +34,13 @@ from texts import (
     USER_BOOKINGS_ACTIVE_LABEL,
     USER_BOOKINGS_LIST_TITLE,
     USER_BOOKINGS_MENU_BUTTON,
+    USER_CHAT_CANCEL_BUTTON,
+    USER_CHAT_EMPTY,
+    USER_CHAT_PROMPT,
+    USER_CHAT_SEND_ERROR,
+    USER_CHAT_SENT,
+    USER_CHAT_TITLE,
+    USER_MENU_CONTACT_ADMIN_BUTTON,
     USER_MENU_BOOKINGS_BUTTON,
     USER_MENU_PROFILE_BUTTON,
     USER_PROFILE_EMPTY,
@@ -42,6 +51,10 @@ from texts import (
 
 
 router = Router()
+
+
+class ClientChatStates(StatesGroup):
+    waiting_admin_message = State()
 
 
 def _record_datetime(record: dict) -> datetime | None:
@@ -76,6 +89,12 @@ def _bookings_menu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
+                InlineKeyboardButton(
+                    text=USER_MENU_CONTACT_ADMIN_BUTTON,
+                    callback_data="user:contact_admin",
+                ),
+            ],
+            [
                 InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
             ],
         ]
@@ -98,6 +117,7 @@ def _user_bookings_keyboard(records: list[dict]) -> InlineKeyboardMarkup:
             ]
         )
 
+    rows.append([InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin")])
     rows.append([InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -117,9 +137,13 @@ def _user_booking_keyboard(record: dict) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
-            InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
+            InlineKeyboardButton(
+                text=USER_MENU_CONTACT_ADMIN_BUTTON,
+                callback_data="user:contact_admin",
+            ),
         ]
     )
+    rows.append([InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -133,8 +157,8 @@ def _user_cancel_confirm_keyboard(record_id: int) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text=USER_BOOKINGS_BACK_BUTTON, callback_data=f"user:booking:{record_id}")],
+            [InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin")],
             [
-                InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
                 InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
             ],
         ]
@@ -206,6 +230,16 @@ def _user_profile_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
                 InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
             ],
+            [InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin")],
+            [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
+        ]
+    )
+
+
+def _user_chat_prompt_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=USER_CHAT_CANCEL_BUTTON, callback_data="user:contact_admin_cancel")],
             [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
         ]
     )
@@ -231,6 +265,40 @@ async def _render_user_profile(target_message, user_id: int):
     await target_message.edit_text("\n".join(lines), reply_markup=_user_profile_keyboard())
 
 
+async def _send_client_message_to_admins(message: Message, text: str) -> bool:
+    profile = await get_client_profile(message.from_user.id) or {}
+    user_label = format_username(message.from_user.username)
+    phone = profile.get("phone_number", "—") or "—"
+    pet_name = profile.get("pet_name", "—") or "—"
+
+    admin_text = (
+        f"{USER_CHAT_TITLE}\n\n"
+        f"👤 Клієнт: {user_label} (ID: {message.from_user.id})\n"
+        f"📞 Телефон: {phone}\n"
+        f"🐾 Хвостик: {pet_name}\n\n"
+        f"💬 Повідомлення:\n{text}"
+    )
+    reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✉️ Відповісти клієнту",
+                    callback_data=f"admin:message:{message.from_user.id}:0",
+                )
+            ]
+        ]
+    )
+
+    delivered = False
+    for admin_id in ADMIN_USER_IDS:
+        try:
+            await message.bot.send_message(admin_id, admin_text, reply_markup=reply_markup)
+            delivered = True
+        except Exception:
+            pass
+    return delivered
+
+
 @router.callback_query(F.data == "user:bookings")
 async def user_bookings(callback: CallbackQuery):
     await callback.answer()
@@ -241,6 +309,51 @@ async def user_bookings(callback: CallbackQuery):
 async def user_profile(callback: CallbackQuery):
     await callback.answer()
     await _render_user_profile(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data == "user:contact_admin")
+async def user_contact_admin(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(ClientChatStates.waiting_admin_message)
+    await callback.message.edit_text(
+        USER_CHAT_PROMPT,
+        reply_markup=_user_chat_prompt_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "user:contact_admin_cancel")
+async def user_contact_admin_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    from .start import build_main_menu_text, main_menu
+
+    await callback.message.edit_text(
+        await build_main_menu_text(callback.from_user.id),
+        reply_markup=main_menu(),
+    )
+
+
+@router.message(ClientChatStates.waiting_admin_message)
+async def user_send_message_to_admin(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer(USER_CHAT_EMPTY)
+        return
+
+    delivered = await _send_client_message_to_admins(message, text)
+    await state.clear()
+
+    from .start import build_main_menu_text, main_menu
+
+    if not delivered:
+        await message.answer(USER_CHAT_SEND_ERROR)
+        return
+
+    await message.answer(USER_CHAT_SENT)
+    await message.answer(
+        await build_main_menu_text(message.from_user.id),
+        reply_markup=main_menu(),
+    )
 
 
 @router.callback_query(lambda callback: callback.data.startswith("user:booking:"))
