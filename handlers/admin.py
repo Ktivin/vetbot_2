@@ -96,6 +96,8 @@ from texts import (
     ADMIN_LOAD_ERROR,
     ADMIN_MESSAGE_CANCEL,
     ADMIN_MESSAGE_EMPTY,
+    ADMIN_MESSAGE_EXITED,
+    ADMIN_MESSAGE_MODE_SENT,
     ADMIN_MESSAGE_PROMPT,
     ADMIN_MESSAGE_SEND_ERROR,
     ADMIN_MESSAGE_SENT,
@@ -956,7 +958,14 @@ async def admin_message_cancel(callback: CallbackQuery, state: FSMContext):
 
     await state.clear()
     await callback.answer()
-    await _render_admin_menu(callback.message)
+    await callback.message.edit_text(
+        ADMIN_MESSAGE_EXITED,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu")]
+            ]
+        ),
+    )
 
 
 @router.message(AdminMessageStates.waiting_message_text)
@@ -980,35 +989,45 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
         await message.answer(ADMIN_LOAD_ERROR)
         return
 
-    outgoing_text = f"✉️ Повідомлення від адміністратора\n\n{text}"
+    outgoing_text = f"💬 Адміністратор\n\n{text}"
+    user_reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💬 Відповісти",
+                    callback_data="user:contact_admin",
+                )
+            ]
+        ]
+    )
 
     try:
-        await message.bot.send_message(target_user_id, outgoing_text)
+        await message.bot.send_message(
+            target_user_id,
+            outgoing_text,
+            reply_markup=user_reply_markup,
+        )
     except Exception:
         logger.exception("Не вдалося надіслати повідомлення клієнту %s.", target_user_id)
         await state.clear()
         await message.answer(ADMIN_MESSAGE_SEND_ERROR)
         return
 
-    await state.clear()
-
     try:
         if prompt_chat_id and prompt_message_id:
-            counts = await get_admin_counts()
-            clients = await get_all_client_profiles()
-            panel_text = ADMIN_PANEL_TITLE
-            if counts.get("all", 0) == 0:
-                panel_text = f"{ADMIN_PANEL_TITLE}\n\n{ADMIN_NO_RECORDS}"
             await message.bot.edit_message_text(
-                panel_text,
+                ADMIN_MESSAGE_PROMPT,
                 chat_id=prompt_chat_id,
                 message_id=prompt_message_id,
-                reply_markup=_admin_menu_keyboard(counts, len(clients)),
+                reply_markup=_admin_message_prompt_keyboard(),
             )
     except Exception:
-        logger.exception("Не вдалося повернути адміністратора до меню після надсилання повідомлення.")
+        logger.exception("Не вдалося оновити екран відкритого чату адміністратора.")
 
-    await message.answer(ADMIN_MESSAGE_SENT)
+    await message.answer(
+        ADMIN_MESSAGE_MODE_SENT,
+        reply_markup=_admin_message_prompt_keyboard(),
+    )
 
 
 @router.callback_query(lambda callback: callback.data == "admin:menu")

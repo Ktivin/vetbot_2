@@ -274,7 +274,7 @@ async def _send_client_message_to_admins(message: Message, text: str) -> bool:
     pet_name = profile.get("pet_name", "—") or "—"
 
     admin_text = (
-        f"{USER_CHAT_TITLE}\n\n"
+        f"💬 Клієнт\n\n"
         f"👤 Клієнт: {user_label} (ID: {message.from_user.id})\n"
         f"📞 Телефон: {phone}\n"
         f"🐾 Хвостик: {pet_name}\n\n"
@@ -284,7 +284,7 @@ async def _send_client_message_to_admins(message: Message, text: str) -> bool:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✉️ Відповісти клієнту",
+                    text="💬 Відкрити чат з клієнтом",
                     callback_data=f"admin:message:{message.from_user.id}:0",
                 )
             ]
