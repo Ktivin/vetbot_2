@@ -36,6 +36,8 @@ from texts import (
     USER_BOOKINGS_MENU_BUTTON,
     USER_CHAT_CANCEL_BUTTON,
     USER_CHAT_EMPTY,
+    USER_CHAT_EXITED,
+    USER_CHAT_MODE_SENT,
     USER_CHAT_PROMPT,
     USER_CHAT_SEND_ERROR,
     USER_CHAT_SENT,
@@ -328,7 +330,7 @@ async def user_contact_admin_cancel(callback: CallbackQuery, state: FSMContext):
     from .start import build_main_menu_text, main_menu
 
     await callback.message.edit_text(
-        await build_main_menu_text(callback.from_user.id),
+        await build_main_menu_text(callback.from_user.id, USER_CHAT_EXITED),
         reply_markup=main_menu(),
     )
 
@@ -341,19 +343,13 @@ async def user_send_message_to_admin(message: Message, state: FSMContext):
         return
 
     delivered = await _send_client_message_to_admins(message, text)
-    await state.clear()
-
-    from .start import build_main_menu_text, main_menu
 
     if not delivered:
+        await state.clear()
         await message.answer(USER_CHAT_SEND_ERROR)
         return
 
-    await message.answer(USER_CHAT_SENT)
-    await message.answer(
-        await build_main_menu_text(message.from_user.id),
-        reply_markup=main_menu(),
-    )
+    await message.answer(USER_CHAT_MODE_SENT, reply_markup=_user_chat_prompt_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("user:booking:"))
