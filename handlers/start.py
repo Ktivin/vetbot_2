@@ -3,6 +3,7 @@ from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.filters.state import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -305,12 +306,8 @@ async def save_issue_description(message: Message, state: FSMContext):
     await _show_main_menu(message)
 
 
-@router.message()
+@router.message(StateFilter(None))
 async def fallback(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    if current_state and not current_state.startswith(f"{OnboardingStates.__name__}:"):
-        return
-
     profile = await get_client_profile(message.from_user.id)
     if profile and profile.get("phone_number"):
         await state.clear()
