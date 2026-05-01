@@ -20,5 +20,13 @@ services:
         sync: false
       - key: GOOGLE_SHEETS_SYSTEM_WORKSHEET_NAME
         sync: false
+      - key: GOOGLE_SHEETS_CHATS_WORKSHEET_NAME
+        sync: false
+      - key: GOOGLE_SHEETS_CHAT_ASSIGNMENTS_WORKSHEET_NAME
+        sync: false
+      - key: GOOGLE_SHEETS_EVENTS_WORKSHEET_NAME
+        sync: false
+      - key: GOOGLE_SHEETS_REMINDERS_WORKSHEET_NAME
+        sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false

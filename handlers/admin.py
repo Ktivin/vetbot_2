@@ -12,13 +12,19 @@ from config import ADMIN_USER_IDS, BUSINESS_TIMEZONE
 from database import (
     delete_client_profile,
     get_admin_counts,
+    get_admin_analytics,
     get_all_client_profiles,
+    get_chat_messages,
+    get_chat_summaries,
     get_client_profile,
     get_consultation_by_id,
     get_consultations,
     get_consultations_for_user,
     is_slot_available_for_update,
+    log_chat_message,
+    log_event,
     search_client_profiles,
+    set_chat_assignment,
     update_consultation_schedule,
     update_consultation_status,
 )
@@ -36,6 +42,7 @@ from texts import (
     ADMIN_ACTION_BACK_TO_CLIENT,
     ADMIN_ACTION_COMPLETE,
     ADMIN_ACTION_MESSAGE,
+    ADMIN_ACTION_CHATS,
     ADMIN_ACTION_CONFIRM,
     ADMIN_ACTION_NEXT,
     ADMIN_ACTION_OPEN_CLIENT,
@@ -101,6 +108,15 @@ from texts import (
     ADMIN_MESSAGE_PROMPT,
     ADMIN_MESSAGE_SEND_ERROR,
     ADMIN_MESSAGE_SENT,
+    ADMIN_QUICK_REPLY_1,
+    ADMIN_QUICK_REPLY_2,
+    ADMIN_QUICK_REPLY_3,
+    ADMIN_QUICK_REPLY_4,
+    ADMIN_ACTION_ANALYTICS,
+    ADMIN_ANALYTICS_TITLE,
+    ADMIN_CHATS_EMPTY,
+    ADMIN_CHATS_TITLE,
+    ADMIN_CHAT_ASSIGNED,
     ADMIN_MENU_BUTTON,
     ADMIN_NO_RECORDS,
     ADMIN_PANEL_TITLE,
@@ -145,6 +161,12 @@ ACTION_STATUS_MAP = {
     "confirm": "confirmed",
     "cancel": "cancelled",
     "complete": "completed",
+}
+QUICK_REPLIES = {
+    "reviewing": ADMIN_QUICK_REPLY_1,
+    "details": ADMIN_QUICK_REPLY_2,
+    "confirming": ADMIN_QUICK_REPLY_3,
+    "later": ADMIN_QUICK_REPLY_4,
 }
 
 
@@ -197,6 +219,16 @@ def _admin_menu_keyboard(counts: dict[str, int], clients_count: int) -> InlineKe
                     callback_data="admin:clients:0",
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text=ADMIN_ACTION_CHATS,
+                    callback_data="admin:chats:0",
+                ),
+                InlineKeyboardButton(
+                    text=ADMIN_ACTION_ANALYTICS,
+                    callback_data="admin:analytics",
+                ),
+            ],
         ]
     )
 
@@ -213,13 +245,18 @@ def _admin_record_text(
         f"{ADMIN_CARD_TITLE} {page + 1} із {total}",
         f"{ADMIN_CARD_FILTER}: {FILTER_LABELS[filter_name]}",
         "",
+        "👤 Клієнт",
         f"🆔 ID: {record['id']}",
         f"👤 {ADMIN_CARD_USER}: {format_username(record['username'])} (ID: {record['user_id']})",
         f"📞 {ADMIN_CARD_PHONE}: {client.get('phone_number', '—') or '—'}",
+        "",
+        "🐾 Хвостик",
         f"🐾 {ADMIN_CARD_PET_NAME}: {client.get('pet_name', '—') or '—'}",
         f"🧬 {ADMIN_CARD_PET_BREED}: {client.get('pet_breed', '—') or '—'}",
         f"🎂 {ADMIN_CARD_PET_AGE}: {client.get('pet_age', '—') or '—'}",
         f"⚖️ {ADMIN_CARD_PET_WEIGHT}: {client.get('pet_weight', '—') or '—'}",
+        "",
+        "📋 Запис",
         f"👨‍⚕️ {ADMIN_CARD_SPECIALIST}: {record['specialist']}",
         f"📝 {ADMIN_CARD_TYPE}: {record['consultation_type']}",
         f"📲 {ADMIN_CARD_COMMUNICATION}: {record.get('communication_method', '—') or '—'}",
@@ -231,7 +268,7 @@ def _admin_record_text(
     if record["city"]:
         lines.append(f"🏙️ {ADMIN_CARD_CITY}: {record['city']}")
     if client.get("issue_description"):
-        lines.append(f"💬 {ADMIN_CARD_ISSUE}: {client['issue_description']}")
+        lines.extend(["", "💬 Запит", client["issue_description"]])
     if user_records is not None:
         active_count = sum(1 for item in user_records if item["status"] in {"pending", "confirmed"})
         lines.append(
@@ -357,20 +394,25 @@ def _client_record_text(profile: dict, page: int, total: int) -> str:
     lines = [
         f"{ADMIN_CARD_PROFILE} {page + 1} із {total}",
         "",
+        "👤 Клієнт",
         f"👤 {ADMIN_CARD_FULL_NAME}: {_client_full_name(profile)}",
         f"🆔 ID: {profile['user_id']}",
         f"🔗 {ADMIN_CARD_USER}: {format_username(profile.get('username'))} (ID: {profile['user_id']})",
         f"📞 {ADMIN_CARD_PHONE}: {profile.get('phone_number', '—') or '—'}",
+        "",
+        "🐾 Хвостик",
         f"🐾 {ADMIN_CARD_PET_NAME}: {profile.get('pet_name', '—') or '—'}",
         f"🧬 {ADMIN_CARD_PET_BREED}: {profile.get('pet_breed', '—') or '—'}",
         f"🎂 {ADMIN_CARD_PET_AGE}: {profile.get('pet_age', '—') or '—'}",
         f"⚖️ {ADMIN_CARD_PET_WEIGHT}: {profile.get('pet_weight', '—') or '—'}",
+        "",
+        "🗂️ Службово",
         f"🗓️ {ADMIN_CARD_CREATED_AT}: {format_datetime_for_display(profile.get('created_at'))}",
         f"♻️ {ADMIN_CARD_UPDATED_AT}: {format_datetime_for_display(profile.get('updated_at'))}",
     ]
 
     if profile.get("issue_description"):
-        lines.append(f"💬 {ADMIN_CARD_ISSUE}: {profile['issue_description']}")
+        lines.extend(["", "💬 Запит", profile["issue_description"]])
 
     return "\n".join(lines)
 
@@ -546,17 +588,108 @@ def _client_reset_confirmation_keyboard(user_id: int, page: int) -> InlineKeyboa
     )
 
 
-def _admin_message_prompt_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def _admin_message_prompt_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if user_id is not None:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text=ADMIN_MESSAGE_CANCEL,
-                    callback_data="admin:message_cancel",
+                    text="📌 Взяти в роботу",
+                    callback_data=f"admin:assign_chat:{user_id}",
                 )
             ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Переглядаємо",
+                    callback_data=f"admin:quick_reply:{user_id}:reviewing",
+                ),
+                InlineKeyboardButton(
+                    text="Уточнити",
+                    callback_data=f"admin:quick_reply:{user_id}:details",
+                ),
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Підтвердження",
+                    callback_data=f"admin:quick_reply:{user_id}:confirming",
+                ),
+                InlineKeyboardButton(
+                    text="Повернемось",
+                    callback_data=f"admin:quick_reply:{user_id}:later",
+                ),
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=ADMIN_ACTION_OPEN_CLIENT,
+                    callback_data=f"admin:client:{user_id}",
+                ),
+                InlineKeyboardButton(
+                    text=ADMIN_ACTION_OPEN_BOOKINGS,
+                    callback_data=f"admin:client_bookings:{user_id}:-1",
+                ),
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=ADMIN_MESSAGE_CANCEL,
+                callback_data="admin:message_cancel",
+            )
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _admin_chat_intro_text(
+    profile: dict | None,
+    user_id: int,
+    next_booking: dict | None = None,
+    messages: list[dict] | None = None,
+) -> str:
+    profile = profile or {}
+    full_name = _client_full_name(profile)
+    username = format_username(profile.get("username"))
+    phone = profile.get("phone_number", "—") or "—"
+    pet_name = profile.get("pet_name", "—") or "—"
+    lines = [
+        "Чат з клієнтом відкрито.\n\n"
+        f"👤 {full_name}",
+        f"🔗 {username} (ID: {user_id})",
+        f"📞 {phone}",
+        f"🐾 {pet_name}",
+    ]
+    if next_booking:
+        lines.append(
+            "📅 Найближчий запис: "
+            f"{next_booking['specialist']} • {format_date_for_display(next_booking['date'])}, {next_booking['time']}"
+        )
+    lines.extend(
+        [
+            "",
+            "Тепер можна надсилати повідомлення одне за одним.",
+            "Коли завершите, натисніть кнопку виходу з чату нижче.",
+        ]
+    )
+    if messages:
+        lines.extend(["", "Останні повідомлення:"])
+        for message in messages[-5:]:
+            author = "Клієнт" if message.get("direction") == "client" else "Ви"
+            time_label = ""
+            try:
+                time_label = datetime.fromisoformat(
+                    str(message.get("created_at") or "")
+                ).astimezone(BUSINESS_TIMEZONE).strftime("%H:%M")
+            except ValueError:
+                pass
+            prefix = author if not time_label else f"{author} · {time_label}"
+            lines.append(f"{prefix}\n{message.get('message', '')}")
+    return "\n".join(lines)
 
 
 def _search_results_keyboard(results: list[dict]) -> InlineKeyboardMarkup:
@@ -877,6 +1010,71 @@ async def _render_client_bookings(target_message: Message, user_id: int, client_
     )
 
 
+async def _render_chat_summaries(target_message: Message):
+    summaries = await get_chat_summaries(limit=10)
+    if not summaries:
+        await target_message.edit_text(
+            ADMIN_CHATS_EMPTY,
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu")]
+                ]
+            ),
+        )
+        return
+
+    rows: list[list[InlineKeyboardButton]] = []
+    lines = [ADMIN_CHATS_TITLE, ""]
+    for summary in summaries:
+        user_id = summary["user_id"]
+        profile = await get_client_profile(user_id) or {}
+        pet_name = profile.get("pet_name", "—") or "—"
+        assigned_admin_id = int(summary.get("assigned_admin_id") or 0)
+        assigned_note = f" • адм. {assigned_admin_id}" if assigned_admin_id else ""
+        last_message = str(summary.get("last_message") or "")
+        preview = last_message[:42] + ("..." if len(last_message) > 42 else "")
+        lines.append(f"• {pet_name} (ID: {user_id}){assigned_note}")
+        if preview:
+            lines.append(f"  {preview}")
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{pet_name} • {summary.get('messages_count', 0)} пов.",
+                    callback_data=f"admin:message:{user_id}:0",
+                )
+            ]
+        )
+
+    rows.append([InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu")])
+    await target_message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+async def _render_admin_analytics(target_message: Message):
+    analytics = await get_admin_analytics()
+    text = "\n".join(
+        [
+            ADMIN_ANALYTICS_TITLE,
+            "",
+            f"👥 Клієнтів: {analytics['clients']}",
+            f"📚 Усього записів: {analytics['consultations']}",
+            f"🗓️ Записів за 7 днів: {analytics['week_consultations']}",
+            f"🆕 Очікують: {analytics['pending']}",
+            f"✅ Підтверджені: {analytics['confirmed']}",
+            f"❌ Скасовані: {analytics['cancelled']}",
+            f"☑️ Завершені: {analytics['completed']}",
+            f"💬 Активних чатів: {analytics['active_chats']}",
+        ]
+    )
+    await target_message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu")]
+            ]
+        ),
+    )
+
+
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
     if not _is_admin(message.from_user.id):
@@ -926,6 +1124,118 @@ async def admin_find_client(message: Message, command: CommandObject):
     await message.answer(text, reply_markup=_search_results_keyboard(results))
 
 
+@router.callback_query(lambda callback: callback.data == "admin:chats:0")
+async def admin_chats(callback: CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    await state.clear()
+    try:
+        await _render_chat_summaries(callback.message)
+        await callback.answer()
+    except Exception:
+        logger.exception("Не вдалося відкрити список чатів.")
+        await callback.answer()
+        await callback.message.answer(ADMIN_LOAD_ERROR)
+
+
+@router.callback_query(lambda callback: callback.data == "admin:analytics")
+async def admin_analytics(callback: CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    await state.clear()
+    try:
+        await _render_admin_analytics(callback.message)
+        await callback.answer()
+    except Exception:
+        logger.exception("Не вдалося відкрити аналітику.")
+        await callback.answer()
+        await callback.message.answer(ADMIN_LOAD_ERROR)
+
+
+@router.callback_query(lambda callback: callback.data.startswith("admin:assign_chat:"))
+async def admin_assign_chat(callback: CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    _, _, user_id_str = callback.data.split(":")
+    user_id = int(user_id_str)
+    await set_chat_assignment(user_id, callback.from_user.id)
+    await log_event("chat_assigned", user_id=user_id, admin_id=callback.from_user.id)
+    await state.set_state(AdminMessageStates.waiting_message_text)
+    await state.update_data(
+        admin_target_user_id=user_id,
+        admin_source_record_id=0,
+        admin_prompt_chat_id=callback.message.chat.id,
+        admin_prompt_message_id=callback.message.message_id,
+    )
+    profile = await get_client_profile(user_id)
+    user_records = await get_consultations_for_user(user_id)
+    messages = await get_chat_messages(user_id, limit=5)
+    await callback.message.edit_text(
+        "\n\n".join(
+            [
+                ADMIN_CHAT_ASSIGNED,
+                _admin_chat_intro_text(profile, user_id, _next_active_booking(user_records), messages),
+            ]
+        ),
+        reply_markup=_admin_message_prompt_keyboard(user_id),
+    )
+    await callback.answer(ADMIN_CHAT_ASSIGNED)
+
+
+@router.callback_query(lambda callback: callback.data.startswith("admin:quick_reply:"))
+async def admin_quick_reply(callback: CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
+        return
+
+    _, _, user_id_str, reply_key = callback.data.split(":")
+    text = QUICK_REPLIES.get(reply_key)
+    if not text:
+        await callback.answer(ADMIN_LOAD_ERROR, show_alert=True)
+        return
+
+    user_id = int(user_id_str)
+    sent_at = datetime.now(BUSINESS_TIMEZONE).strftime("%H:%M")
+    try:
+        await callback.bot.send_message(
+            user_id,
+            f"💬 Адміністратор\n\n🕒 {sent_at}\n\n{text}",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="💬 Відповісти", callback_data="user:contact_admin")]
+                ]
+            ),
+        )
+    except Exception:
+        logger.exception("Не вдалося надіслати швидку відповідь клієнту %s.", user_id)
+        await callback.answer(ADMIN_MESSAGE_SEND_ERROR, show_alert=True)
+        return
+
+    await log_chat_message(user_id, "admin", text, admin_id=callback.from_user.id)
+    await log_event("chat_admin_quick_reply", user_id=user_id, admin_id=callback.from_user.id, details=text)
+    await state.set_state(AdminMessageStates.waiting_message_text)
+    await state.update_data(
+        admin_target_user_id=user_id,
+        admin_source_record_id=0,
+        admin_prompt_chat_id=callback.message.chat.id,
+        admin_prompt_message_id=callback.message.message_id,
+    )
+    profile = await get_client_profile(user_id)
+    user_records = await get_consultations_for_user(user_id)
+    messages = await get_chat_messages(user_id, limit=5)
+    await callback.message.edit_text(
+        _admin_chat_intro_text(profile, user_id, _next_active_booking(user_records), messages),
+        reply_markup=_admin_message_prompt_keyboard(user_id),
+    )
+    await callback.answer(ADMIN_MESSAGE_SENT)
+
+
 @router.callback_query(lambda callback: callback.data.startswith("admin:message:"))
 async def admin_message_prompt(callback: CallbackQuery, state: FSMContext):
     if not _is_admin(callback.from_user.id):
@@ -935,6 +1245,10 @@ async def admin_message_prompt(callback: CallbackQuery, state: FSMContext):
     _, _, user_id_str, source_record_id_str = callback.data.split(":")
     user_id = int(user_id_str)
     source_record_id = int(source_record_id_str)
+    profile = await get_client_profile(user_id)
+    user_records = await get_consultations_for_user(user_id)
+    next_booking = _next_active_booking(user_records)
+    messages = await get_chat_messages(user_id, limit=5)
 
     await state.set_state(AdminMessageStates.waiting_message_text)
     await state.update_data(
@@ -945,8 +1259,8 @@ async def admin_message_prompt(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
     await callback.message.edit_text(
-        ADMIN_MESSAGE_PROMPT,
-        reply_markup=_admin_message_prompt_keyboard(),
+        _admin_chat_intro_text(profile, user_id, next_booking, messages),
+        reply_markup=_admin_message_prompt_keyboard(user_id),
     )
 
 
@@ -989,7 +1303,8 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
         await message.answer(ADMIN_LOAD_ERROR)
         return
 
-    outgoing_text = f"💬 Адміністратор\n\n{text}"
+    sent_at = datetime.now(BUSINESS_TIMEZONE).strftime("%H:%M")
+    outgoing_text = f"💬 Адміністратор\n\n🕒 {sent_at}\n\n{text}"
     user_reply_markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1013,30 +1328,46 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
         await message.answer(ADMIN_MESSAGE_SEND_ERROR)
         return
 
+    await log_chat_message(int(target_user_id), "admin", text, admin_id=message.from_user.id)
+    await log_event(
+        "chat_admin_message",
+        user_id=int(target_user_id),
+        admin_id=message.from_user.id,
+        details=text[:300],
+    )
+
     try:
         if prompt_chat_id and prompt_message_id:
+            user_records = await get_consultations_for_user(int(target_user_id))
+            messages = await get_chat_messages(int(target_user_id), limit=5)
             await message.bot.edit_message_text(
-                ADMIN_MESSAGE_PROMPT,
+                _admin_chat_intro_text(
+                    await get_client_profile(target_user_id),
+                    int(target_user_id),
+                    _next_active_booking(user_records),
+                    messages,
+                ),
                 chat_id=prompt_chat_id,
                 message_id=prompt_message_id,
-                reply_markup=_admin_message_prompt_keyboard(),
+                reply_markup=_admin_message_prompt_keyboard(int(target_user_id)),
             )
     except Exception:
         logger.exception("Не вдалося оновити екран відкритого чату адміністратора.")
 
     await message.answer(
         ADMIN_MESSAGE_MODE_SENT,
-        reply_markup=_admin_message_prompt_keyboard(),
+        reply_markup=_admin_message_prompt_keyboard(int(target_user_id)),
     )
 
 
 @router.callback_query(lambda callback: callback.data == "admin:menu")
-async def admin_menu(callback: CallbackQuery):
+async def admin_menu(callback: CallbackQuery, state: FSMContext):
     if not _is_admin(callback.from_user.id):
         await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
         return
 
     try:
+        await state.clear()
         await _render_admin_menu(callback.message)
         await callback.answer()
     except TelegramBadRequest:
@@ -1082,11 +1413,12 @@ async def admin_clients(callback: CallbackQuery):
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:client:"))
-async def admin_client_from_record(callback: CallbackQuery):
+async def admin_client_from_record(callback: CallbackQuery, state: FSMContext):
     if not _is_admin(callback.from_user.id):
         await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
         return
 
+    await state.clear()
     parts = callback.data.split(":")
     user_id_str = parts[2]
     preferred_page = int(parts[3]) if len(parts) > 3 else None
@@ -1111,11 +1443,12 @@ async def admin_client_from_record(callback: CallbackQuery):
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:client_bookings:"))
-async def admin_client_bookings(callback: CallbackQuery):
+async def admin_client_bookings(callback: CallbackQuery, state: FSMContext):
     if not _is_admin(callback.from_user.id):
         await callback.answer(ADMIN_ACCESS_DENIED, show_alert=True)
         return
 
+    await state.clear()
     _, _, user_id_str, client_page_str = callback.data.split(":")
 
     try:
@@ -1303,6 +1636,13 @@ async def admin_reschedule_time(callback: CallbackQuery):
         if not updated:
             await callback.answer(ADMIN_RESCHEDULE_ERROR, show_alert=True)
             return
+        await log_event(
+            "consultation_rescheduled",
+            user_id=record["user_id"],
+            admin_id=callback.from_user.id,
+            record_id=record_id,
+            details=f"{date_value} {time_value}",
+        )
 
         user_message = (
             USER_BOOKING_RESCHEDULED
@@ -1356,6 +1696,13 @@ async def admin_action(callback: CallbackQuery):
         if not updated:
             await callback.answer(ADMIN_STATUS_UPDATE_ERROR, show_alert=True)
             return
+        await log_event(
+            "consultation_status_updated",
+            user_id=record["user_id"],
+            admin_id=callback.from_user.id,
+            record_id=record_id,
+            details=new_status,
+        )
 
         user_message = _user_status_message(record, new_status)
         if user_message:

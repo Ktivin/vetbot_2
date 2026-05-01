@@ -21,6 +21,17 @@ from integrations.google_sheets_store import (
     delete_client_profile_from_google_sheets,
     get_all_client_profiles_from_google_sheets,
 )
+from integrations.google_sheets_crm import (
+    add_chat_message_to_google_sheets,
+    add_event_to_google_sheets,
+    get_chat_assignment_from_google_sheets,
+    get_chat_messages_from_google_sheets,
+    get_chat_summaries_from_google_sheets,
+    has_reminder_in_google_sheets,
+    is_google_sheets_crm_enabled,
+    mark_reminder_in_google_sheets,
+    set_chat_assignment_in_google_sheets,
+)
 
 
 DB_NAME = "consultations.db"
@@ -52,6 +63,20 @@ CLIENT_COLUMNS = (
     "created_at",
     "updated_at",
 )
+CHAT_MESSAGE_COLUMNS = (
+    "id",
+    "user_id",
+    "direction",
+    "admin_id",
+    "message",
+    "created_at",
+)
+CHAT_ASSIGNMENT_COLUMNS = (
+    "user_id",
+    "assigned_admin_id",
+    "status",
+    "updated_at",
+)
 
 
 def _row_to_consultation(row: tuple | None) -> dict | None:
@@ -64,6 +89,18 @@ def _row_to_client(row: tuple | None) -> dict | None:
     if row is None:
         return None
     return dict(zip(CLIENT_COLUMNS, row))
+
+
+def _row_to_chat_message(row: tuple | None) -> dict | None:
+    if row is None:
+        return None
+    return dict(zip(CHAT_MESSAGE_COLUMNS, row))
+
+
+def _row_to_chat_assignment(row: tuple | None) -> dict | None:
+    if row is None:
+        return None
+    return dict(zip(CHAT_ASSIGNMENT_COLUMNS, row))
 
 
 async def _get_client_profile_local(user_id: int) -> dict | None:
@@ -116,6 +153,51 @@ async def init_db():
                 issue_description TEXT,
                 created_at TEXT,
                 updated_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                direction TEXT,
+                admin_id INTEGER DEFAULT 0,
+                message TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_assignments (
+                user_id INTEGER PRIMARY KEY,
+                assigned_admin_id INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'open',
+                updated_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT,
+                user_id INTEGER DEFAULT 0,
+                admin_id INTEGER DEFAULT 0,
+                record_id INTEGER DEFAULT 0,
+                details TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sent_reminders (
+                record_id INTEGER,
+                reminder_type TEXT,
+                sent_at TEXT,
+                PRIMARY KEY (record_id, reminder_type)
             )
             """
         )
@@ -551,3 +633,240 @@ async def delete_old_consultations():
         await db.commit()
         logger.info("Автоочистка завершена. Видалено %s застарілих записів.", deleted)
         return deleted
+
+
+async def log_chat_message(
+    user_id: int,
+    direction: str,
+    message: str,
+    admin_id: int = 0,
+) -> dict:
+    created_at = datetime.now(BUSINESS_TIMEZONE).isoformat()
+    data = {
+        "user_id": user_id,
+        "direction": direction,
+        "admin_id": admin_id,
+        "message": message,
+        "created_at": created_at,
+    }
+    if is_google_sheets_crm_enabled():
+        try:
+            return await add_chat_message_to_google_sheets(data)
+        except Exception:
+            logger.exception("Не вдалося записати повідомлення чату в Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            """
+            INSERT INTO chat_messages (user_id, direction, admin_id, message, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, direction, admin_id, message, created_at),
+        )
+        await db.commit()
+        data["id"] = cursor.lastrowid
+        return data
+
+
+async def get_chat_messages(user_id: int, limit: int = 8) -> list[dict]:
+    if is_google_sheets_crm_enabled():
+        try:
+            return await get_chat_messages_from_google_sheets(user_id, limit)
+        except Exception:
+            logger.exception("Не вдалося прочитати історію чату з Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            """
+            SELECT * FROM chat_messages
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            messages = [_row_to_chat_message(row) for row in rows]
+            return [message for message in reversed(messages) if message]
+
+
+async def set_chat_assignment(user_id: int, admin_id: int, status: str = "open") -> dict:
+    if is_google_sheets_crm_enabled():
+        try:
+            return await set_chat_assignment_in_google_sheets(user_id, admin_id, status)
+        except Exception:
+            logger.exception("Не вдалося закріпити чат у Google Sheets. Використовуємо локальний кеш.")
+
+    updated_at = datetime.now(BUSINESS_TIMEZONE).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            """
+            INSERT INTO chat_assignments (user_id, assigned_admin_id, status, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                assigned_admin_id = excluded.assigned_admin_id,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, admin_id, status, updated_at),
+        )
+        await db.commit()
+    return {
+        "user_id": user_id,
+        "assigned_admin_id": admin_id,
+        "status": status,
+        "updated_at": updated_at,
+    }
+
+
+async def get_chat_assignment(user_id: int) -> dict | None:
+    if is_google_sheets_crm_enabled():
+        try:
+            return await get_chat_assignment_from_google_sheets(user_id)
+        except Exception:
+            logger.exception("Не вдалося прочитати закріплення чату з Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT * FROM chat_assignments WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            return _row_to_chat_assignment(await cursor.fetchone())
+
+
+async def get_chat_summaries(limit: int = 10) -> list[dict]:
+    if is_google_sheets_crm_enabled():
+        try:
+            return await get_chat_summaries_from_google_sheets(limit)
+        except Exception:
+            logger.exception("Не вдалося прочитати список чатів з Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT * FROM chat_messages ORDER BY created_at ASC, id ASC"
+        ) as cursor:
+            message_rows = await cursor.fetchall()
+        async with db.execute("SELECT * FROM chat_assignments") as cursor:
+            assignment_rows = await cursor.fetchall()
+
+    assignments = {
+        item["user_id"]: item
+        for item in (_row_to_chat_assignment(row) for row in assignment_rows)
+        if item
+    }
+    grouped: dict[int, dict] = {}
+    for message in (_row_to_chat_message(row) for row in message_rows):
+        if not message:
+            continue
+        user_id = int(message["user_id"])
+        grouped[user_id] = {
+            "user_id": user_id,
+            "last_message": message["message"],
+            "last_direction": message["direction"],
+            "last_at": message["created_at"],
+            "messages_count": grouped.get(user_id, {}).get("messages_count", 0) + 1,
+            "assigned_admin_id": (assignments.get(user_id) or {}).get("assigned_admin_id", 0),
+            "status": (assignments.get(user_id) or {}).get("status", "open"),
+        }
+    summaries = list(grouped.values())
+    summaries.sort(key=lambda item: item.get("last_at", ""), reverse=True)
+    return summaries[:limit]
+
+
+async def log_event(
+    event_type: str,
+    user_id: int = 0,
+    admin_id: int = 0,
+    record_id: int = 0,
+    details: str = "",
+) -> dict:
+    created_at = datetime.now(BUSINESS_TIMEZONE).isoformat()
+    data = {
+        "event_type": event_type,
+        "user_id": user_id,
+        "admin_id": admin_id,
+        "record_id": record_id,
+        "details": details,
+        "created_at": created_at,
+    }
+    if is_google_sheets_crm_enabled():
+        try:
+            return await add_event_to_google_sheets(data)
+        except Exception:
+            logger.exception("Не вдалося записати подію в Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            """
+            INSERT INTO events (event_type, user_id, admin_id, record_id, details, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (event_type, user_id, admin_id, record_id, details, created_at),
+        )
+        await db.commit()
+        data["id"] = cursor.lastrowid
+        return data
+
+
+async def has_reminder_sent(record_id: int, reminder_type: str) -> bool:
+    if is_google_sheets_crm_enabled():
+        try:
+            return await has_reminder_in_google_sheets(record_id, reminder_type)
+        except Exception:
+            logger.exception("Не вдалося перевірити нагадування в Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT 1 FROM sent_reminders WHERE record_id = ? AND reminder_type = ?",
+            (record_id, reminder_type),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+
+async def mark_reminder_sent(record_id: int, reminder_type: str) -> None:
+    if is_google_sheets_crm_enabled():
+        try:
+            await mark_reminder_in_google_sheets(record_id, reminder_type)
+            return
+        except Exception:
+            logger.exception("Не вдалося записати нагадування в Google Sheets. Використовуємо локальний кеш.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO sent_reminders (record_id, reminder_type, sent_at)
+            VALUES (?, ?, ?)
+            """,
+            (record_id, reminder_type, datetime.now(BUSINESS_TIMEZONE).isoformat()),
+        )
+        await db.commit()
+
+
+async def get_admin_analytics() -> dict[str, int]:
+    consultations = await get_consultations("all")
+    clients = await get_all_client_profiles()
+    chats = await get_chat_summaries(limit=1000)
+    today = datetime.now(BUSINESS_TIMEZONE).date()
+    week_ago = today - timedelta(days=7)
+
+    def _record_date(record: dict):
+        try:
+            return datetime.fromisoformat(str(record.get("date"))).date()
+        except ValueError:
+            return None
+
+    week_records = [
+        record
+        for record in consultations
+        if (record_date := _record_date(record)) is not None and week_ago <= record_date <= today
+    ]
+    return {
+        "clients": len(clients),
+        "consultations": len(consultations),
+        "week_consultations": len(week_records),
+        "pending": sum(1 for record in consultations if record.get("status") == "pending"),
+        "confirmed": sum(1 for record in consultations if record.get("status") == "confirmed"),
+        "cancelled": sum(1 for record in consultations if record.get("status") == "cancelled"),
+        "completed": sum(1 for record in consultations if record.get("status") == "completed"),
+        "active_chats": len(chats),
+    }

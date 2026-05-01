@@ -54,4 +54,20 @@ GOOGLE_SHEETS_SYSTEM_WORKSHEET_NAME = (
     os.getenv("GOOGLE_SHEETS_SYSTEM_WORKSHEET_NAME", "_system").strip()
     or "_system"
 )
+GOOGLE_SHEETS_CHATS_WORKSHEET_NAME = (
+    os.getenv("GOOGLE_SHEETS_CHATS_WORKSHEET_NAME", "Chats").strip()
+    or "Chats"
+)
+GOOGLE_SHEETS_CHAT_ASSIGNMENTS_WORKSHEET_NAME = (
+    os.getenv("GOOGLE_SHEETS_CHAT_ASSIGNMENTS_WORKSHEET_NAME", "ChatAssignments").strip()
+    or "ChatAssignments"
+)
+GOOGLE_SHEETS_EVENTS_WORKSHEET_NAME = (
+    os.getenv("GOOGLE_SHEETS_EVENTS_WORKSHEET_NAME", "Events").strip()
+    or "Events"
+)
+GOOGLE_SHEETS_REMINDERS_WORKSHEET_NAME = (
+    os.getenv("GOOGLE_SHEETS_REMINDERS_WORKSHEET_NAME", "Reminders").strip()
+    or "Reminders"
+)
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()

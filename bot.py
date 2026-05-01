@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import socket
+from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -10,7 +11,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import BOT_TOKEN, BUSINESS_TIMEZONE
-from database import delete_old_consultations, init_db
+from database import (
+    delete_old_consultations,
+    get_consultations,
+    has_reminder_sent,
+    init_db,
+    mark_reminder_sent,
+)
 from handlers import admin, client, specialist, start
 from handlers.errors import register_global_error_handler
 from integrations.google_sheets_consultations import (
@@ -26,6 +33,50 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+async def send_due_booking_reminders(bot: Bot) -> None:
+    current_time = datetime.now(BUSINESS_TIMEZONE)
+    try:
+        records = await get_consultations("all")
+    except Exception:
+        logger.exception("Не вдалося отримати записи для нагадувань.")
+        return
+
+    for record in records:
+        if record.get("status") not in {"pending", "confirmed"}:
+            continue
+        try:
+            record_dt = datetime.fromisoformat(f"{record['date']}T{record['time']}:00").replace(
+                tzinfo=BUSINESS_TIMEZONE
+            )
+        except (KeyError, ValueError):
+            continue
+
+        delta = record_dt - current_time
+        reminder_type = ""
+        if timedelta(hours=23, minutes=30) <= delta <= timedelta(hours=24, minutes=30):
+            reminder_type = "24h"
+        elif timedelta(hours=2, minutes=30) <= delta <= timedelta(hours=3, minutes=30):
+            reminder_type = "3h"
+        if not reminder_type:
+            continue
+
+        if await has_reminder_sent(record["id"], reminder_type):
+            continue
+
+        reminder_text = (
+            "Нагадуємо про запис.\n\n"
+            f"Фахівець: {record['specialist']}\n"
+            f"Дата: {record['date']}\n"
+            f"Час: {record['time']}\n\n"
+            "Якщо потрібно уточнити деталі, відкрийте чат з адміністратором."
+        )
+        try:
+            await bot.send_message(record["user_id"], reminder_text)
+            await mark_reminder_sent(record["id"], reminder_type)
+        except Exception:
+            logger.exception("Не вдалося надіслати нагадування для запису %s.", record.get("id"))
 
 
 async def _polling_lock_heartbeat(owner: str, interval_seconds: int = 45) -> None:
@@ -59,8 +110,13 @@ async def main():
         CronTrigger(hour=3, minute=0),
         id="cleanup_old_records",
     )
-    scheduler.start()
-    logger.info("Автоочистку записів заплановано щодня о 03:00.")
+    scheduler.add_job(
+        send_due_booking_reminders,
+        "interval",
+        minutes=30,
+        id="booking_reminders",
+        args=[bot],
+    )
     instance_owner = f"{socket.gethostname()}:{os.getpid()}"
     has_lock = await acquire_polling_lock(instance_owner)
     if not has_lock:
@@ -73,14 +129,16 @@ async def main():
             current_owner or "невідомо",
             expires_at or "невідомо",
         )
-        scheduler.shutdown(wait=False)
         await bot.session.close()
         return
 
     heartbeat_task = asyncio.create_task(_polling_lock_heartbeat(instance_owner))
-
+    scheduler_started = False
 
     try:
+        scheduler.start()
+        scheduler_started = True
+        logger.info("Автоочистку записів заплановано щодня о 03:00.")
         logger.info("Бота запущено.")
         await dp.start_polling(
             bot,
@@ -98,7 +156,8 @@ async def main():
         except asyncio.CancelledError:
             pass
         await release_polling_lock(instance_owner)
-        scheduler.shutdown(wait=False)
+        if scheduler_started:
+            scheduler.shutdown(wait=False)
         await bot.session.close()
 
 

@@ -46,6 +46,7 @@ from texts import (
     SUMMARY_PET_BREED,
     SUMMARY_PET_NAME,
     SUMMARY_PET_WEIGHT,
+    USER_MENU_ACTIVE_BOOKING_BUTTON,
     USER_MENU_CONTACT_ADMIN_BUTTON,
 )
 
@@ -94,6 +95,9 @@ def main_menu():
                 )
             ],
             [
+                InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking"),
+            ],
+            [
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
                 InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
             ],
@@ -126,14 +130,14 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     sections = [heading or (PROFILE_ALREADY_SAVED if profile and profile.get("phone_number") else START_GREETING)]
 
     if profile and profile.get("pet_name"):
-        pet_summary = (
-            f"🐾 {profile.get('pet_name', '—')} • "
-            f"{profile.get('pet_breed', '—')} • "
-            f"{profile.get('pet_age', '—')} • "
-            f"{profile.get('pet_weight', '—')}"
+        pet_summary = "\n".join(
+            [
+                f"🐾 {profile.get('pet_name', '—')}",
+                f"🧬 {profile.get('pet_breed', '—')}",
+                f"🎂 {profile.get('pet_age', '—')} • ⚖️ {profile.get('pet_weight', '—')}",
+            ]
         )
-        sections.append(f"{PROFILE_MENU_SUMMARY_TITLE}:\n{pet_summary}")
-        sections.append(PROFILE_MENU_HINT)
+        sections.append(f"{PROFILE_MENU_SUMMARY_TITLE}\n{pet_summary}")
 
     now = datetime.now(BUSINESS_TIMEZONE)
     upcoming_bookings = []
@@ -152,19 +156,17 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     if upcoming_bookings:
         upcoming_bookings.sort(key=lambda item: item[0])
         _, next_record = upcoming_bookings[0]
-        next_line = (
-            f"{next_record['specialist']} • "
-            f"{format_date_for_display(next_record['date'])}, {next_record['time']} • "
-            f"{format_status(next_record['status'])}"
+        next_line = "\n".join(
+            [
+                f"👨‍⚕️ {next_record['specialist']}",
+                f"📅 {format_date_for_display(next_record['date'])}, {next_record['time']}",
+                f"📌 {format_status(next_record['status'])}",
+            ]
         )
-        sections.append(f"{USER_NEXT_BOOKING_LABEL}:\n{next_line}")
+        sections.append(f"{USER_NEXT_BOOKING_LABEL}\n{next_line}")
 
     sections.append(
-        "🗂️ Ваші дії:\n"
-        "• переглянути записи\n"
-        "• переглянути дані\n"
-        "• написати адміністратору\n"
-        "• оновити знайомство"
+        "Оберіть фахівця або скористайтеся швидкими діями нижче."
     )
 
     return "\n\n".join(section for section in sections if section)

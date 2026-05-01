@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import ADMIN_USER_IDS, BUSINESS_TIMEZONE
-from database import add_consultation, get_client_profile, is_slot_available
+from database import add_consultation, get_client_profile, is_slot_available, log_event
 from formatting import (
     format_date_for_button,
     format_date_for_display,
@@ -92,11 +92,13 @@ def _format_summary(data: dict) -> str:
     lines = [
         SUMMARY_TITLE,
         "",
+        "🐾 Хвостик",
         f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
         f"🧬 {SUMMARY_PET_BREED}: {data['pet_breed']}",
         f"🎂 {SUMMARY_PET_AGE}: {data['pet_age']}",
         f"⚖️ {SUMMARY_PET_WEIGHT}: {data['pet_weight']}",
         "",
+        "📋 Запис",
         f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
         f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
         f"📲 {SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
@@ -109,6 +111,7 @@ def _format_summary(data: dict) -> str:
     lines.extend(
         [
             "",
+            "💬 Запит",
             f"💬 {SUMMARY_ISSUE}: {data['issue_description']}",
         ]
     )
@@ -119,14 +122,14 @@ def _format_summary(data: dict) -> str:
 def _step_context(data: dict) -> str:
     lines: list[str] = []
     if data.get("specialist"):
-        lines.append(f"{SUMMARY_SPECIALIST}: {data['specialist']}")
+        lines.append(f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}")
     if data.get("consultation_type"):
-        lines.append(f"{SUMMARY_TYPE}: {data['consultation_type']}")
+        lines.append(f"📝 {SUMMARY_TYPE}: {data['consultation_type']}")
     if data.get("communication_method"):
-        lines.append(f"{SUMMARY_COMMUNICATION}: {data['communication_method']}")
+        lines.append(f"📲 {SUMMARY_COMMUNICATION}: {data['communication_method']}")
     city = data.get("city", "").strip()
     if city:
-        lines.append(f"{SUMMARY_CITY}: {city}")
+        lines.append(f"🏙️ {SUMMARY_CITY}: {city}")
     return "\n".join(lines)
 
 
@@ -145,6 +148,7 @@ def _format_booking_created_message(data: dict) -> str:
     lines = [
         BOOKING_SUCCESS_TITLE,
         "",
+        "📋 Деталі запису",
         f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
         f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
         f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
@@ -562,6 +566,12 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
 
     try:
         record_id = await add_consultation(data)
+        await log_event(
+            "consultation_created",
+            user_id=callback.from_user.id,
+            record_id=record_id,
+            details=f"{data['specialist']} {data['date']} {data['time']}",
+        )
     except Exception:
         logger.exception("Не вдалося зберегти новий запис.")
         from .start import build_main_menu_text, main_menu

@@ -7,9 +7,13 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from config import ADMIN_USER_IDS, BUSINESS_TIMEZONE
 from database import (
+    get_chat_assignment,
+    get_chat_messages,
     get_client_profile,
     get_consultation_by_id,
     get_consultations_for_user,
+    log_chat_message,
+    log_event,
     update_consultation_status,
 )
 from formatting import format_date_for_display, format_status, format_username
@@ -43,6 +47,8 @@ from texts import (
     USER_CHAT_SENT,
     USER_CHAT_TITLE,
     USER_MENU_CONTACT_ADMIN_BUTTON,
+    USER_MENU_ACTIVE_BOOKING_BUTTON,
+    USER_ACTIVE_BOOKING_EMPTY,
     USER_MENU_BOOKINGS_BUTTON,
     USER_MENU_PROFILE_BUTTON,
     USER_PROFILE_EMPTY,
@@ -79,6 +85,19 @@ def _sort_user_bookings(records: list[dict]) -> list[dict]:
     return sorted(records, key=sort_key)
 
 
+def _active_user_bookings(records: list[dict]) -> list[dict]:
+    now = datetime.now(BUSINESS_TIMEZONE)
+    active_records = []
+    for record in records:
+        if record.get("status") not in {"pending", "confirmed"}:
+            continue
+        record_dt = _record_datetime(record)
+        if record_dt is None or record_dt < now:
+            continue
+        active_records.append(record)
+    return _sort_user_bookings(active_records)
+
+
 def _is_cancellable(record: dict) -> bool:
     if record.get("status") not in {"pending", "confirmed"}:
         return False
@@ -89,6 +108,12 @@ def _is_cancellable(record: dict) -> bool:
 def _bookings_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=USER_MENU_ACTIVE_BOOKING_BUTTON,
+                    callback_data="user:active_booking",
+                )
+            ],
             [
                 InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
                 InlineKeyboardButton(
@@ -120,6 +145,7 @@ def _user_bookings_keyboard(records: list[dict]) -> InlineKeyboardMarkup:
         )
 
     rows.append([InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin")])
+    rows.append([InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking")])
     rows.append([InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -136,6 +162,7 @@ def _user_booking_keyboard(record: dict) -> InlineKeyboardMarkup:
             ]
         )
     rows.append([InlineKeyboardButton(text=USER_BOOKINGS_BACK_BUTTON, callback_data="user:bookings")])
+    rows.append([InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking")])
     rows.append(
         [
             InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
@@ -171,6 +198,7 @@ def _booking_card_text(record: dict) -> str:
     lines = [
         USER_BOOKING_CARD_TITLE,
         "",
+        "📋 Деталі",
         f"👨‍⚕️ {USER_BOOKING_CARD_SPECIALIST}: {record['specialist']}",
         f"📝 {USER_BOOKING_CARD_TYPE}: {record['consultation_type']}",
         f"📲 {USER_BOOKING_CARD_COMMUNICATION}: {record.get('communication_method', '—') or '—'}",
@@ -182,7 +210,7 @@ def _booking_card_text(record: dict) -> str:
         lines.append(f"🏙️ {USER_BOOKING_CARD_CITY}: {record['city']}")
     client_issue = (record.get("client") or {}).get("issue_description", "")
     if client_issue:
-        lines.append(f"💬 {USER_BOOKING_CARD_ISSUE}: {client_issue}")
+        lines.extend(["", "💬 Запит", f"{client_issue}"])
     return "\n".join(lines)
 
 
@@ -207,12 +235,10 @@ async def _render_user_bookings(target_message, user_id: int, flash_message: str
         lines.extend(
             [
                 "",
-                f"{USER_BOOKINGS_ACTIVE_LABEL}:",
-                (
-                    f"• {next_record['specialist']} • "
-                    f"{format_date_for_display(next_record['date'])}, {next_record['time']} • "
-                    f"{format_status(next_record['status'])}"
-                ),
+                USER_BOOKINGS_ACTIVE_LABEL,
+                f"👨‍⚕️ {next_record['specialist']}",
+                f"📅 {format_date_for_display(next_record['date'])}, {next_record['time']}",
+                f"📌 {format_status(next_record['status'])}",
             ]
         )
     if history_records:
@@ -228,6 +254,7 @@ async def _render_user_bookings(target_message, user_id: int, flash_message: str
 def _user_profile_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking")],
             [
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
                 InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
@@ -247,6 +274,51 @@ def _user_chat_prompt_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _format_chat_history(messages: list[dict], viewer: str) -> list[str]:
+    if not messages:
+        return []
+
+    lines = ["", "Останні повідомлення:"]
+    for message in messages[-5:]:
+        direction = message.get("direction")
+        if viewer == "client":
+            author = "Ви" if direction == "client" else "Адміністратор"
+        else:
+            author = "Клієнт" if direction == "client" else "Адміністратор"
+        created_at = str(message.get("created_at") or "")
+        time_label = ""
+        try:
+            time_label = datetime.fromisoformat(created_at).astimezone(BUSINESS_TIMEZONE).strftime("%H:%M")
+        except ValueError:
+            pass
+        prefix = f"{author}"
+        if time_label:
+            prefix += f" · {time_label}"
+        lines.append(f"{prefix}\n{message.get('message', '')}")
+    return lines
+
+
+async def _client_chat_intro_text(user_id: int) -> str:
+    bookings = await get_consultations_for_user(user_id)
+    messages = await get_chat_messages(user_id, limit=5)
+    active_count = sum(1 for record in bookings if record.get("status") in {"pending", "confirmed"})
+    active_records = _sort_user_bookings(
+        [record for record in bookings if record.get("status") in {"pending", "confirmed"}]
+    )
+    lines = [USER_CHAT_PROMPT]
+    if active_count:
+        lines.append(f"📌 Активних записів зараз: {active_count}")
+    if active_records:
+        next_record = active_records[0]
+        lines.append(
+            "Найближчий запис:\n"
+            f"• {next_record['specialist']} • "
+            f"{format_date_for_display(next_record['date'])}, {next_record['time']}"
+        )
+    lines.extend(_format_chat_history(messages, "client"))
+    return "\n\n".join(lines)
+
+
 async def _render_user_profile(target_message, user_id: int):
     profile = await get_client_profile(user_id)
     if not profile:
@@ -256,30 +328,45 @@ async def _render_user_profile(target_message, user_id: int):
     lines = [
         USER_PROFILE_TITLE,
         "",
+        "🐾 Хвостик",
         f"🐾 {profile.get('pet_name', '—')}",
         f"🧬 {profile.get('pet_breed', '—')}",
         f"🎂 {profile.get('pet_age', '—')}",
         f"⚖️ {profile.get('pet_weight', '—')}",
     ]
     if profile.get("issue_description"):
-        lines.extend(["", f"💬 {profile['issue_description']}"])
+        lines.extend(["", "💬 Запит", profile["issue_description"]])
     lines.extend(["", USER_PROFILE_HINT])
     await target_message.edit_text("\n".join(lines), reply_markup=_user_profile_keyboard())
 
 
 async def _send_client_message_to_admins(message: Message, text: str) -> bool:
     profile = await get_client_profile(message.from_user.id) or {}
+    bookings = await get_consultations_for_user(message.from_user.id)
+    assignment = await get_chat_assignment(message.from_user.id)
     user_label = format_username(message.from_user.username)
     phone = profile.get("phone_number", "—") or "—"
     pet_name = profile.get("pet_name", "—") or "—"
-
-    admin_text = (
-        f"💬 Клієнт\n\n"
-        f"👤 Клієнт: {user_label} (ID: {message.from_user.id})\n"
-        f"📞 Телефон: {phone}\n"
-        f"🐾 Хвостик: {pet_name}\n\n"
-        f"💬 Повідомлення:\n{text}"
+    sent_at = datetime.now(BUSINESS_TIMEZONE).strftime("%H:%M")
+    active_records = _sort_user_bookings(
+        [record for record in bookings if record.get("status") in {"pending", "confirmed"}]
     )
+
+    admin_lines = [
+        "💬 Клієнт",
+        "",
+        f"👤 {user_label} (ID: {message.from_user.id})",
+        f"📞 {phone}",
+        f"🐾 {pet_name}",
+    ]
+    if active_records:
+        next_record = active_records[0]
+        admin_lines.append(
+            "📅 Найближчий запис: "
+            f"{next_record['specialist']} • {format_date_for_display(next_record['date'])}, {next_record['time']}"
+        )
+    admin_lines.extend(["", f"🕒 {sent_at}", "", text])
+    admin_text = "\n".join(admin_lines)
     reply_markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -287,12 +374,20 @@ async def _send_client_message_to_admins(message: Message, text: str) -> bool:
                     text="💬 Відкрити чат з клієнтом",
                     callback_data=f"admin:message:{message.from_user.id}:0",
                 )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📌 Взяти в роботу",
+                    callback_data=f"admin:assign_chat:{message.from_user.id}",
+                )
             ]
         ]
     )
 
     delivered = False
-    for admin_id in ADMIN_USER_IDS:
+    assigned_admin_id = int((assignment or {}).get("assigned_admin_id") or 0)
+    target_admins = [assigned_admin_id] if assigned_admin_id in ADMIN_USER_IDS else ADMIN_USER_IDS
+    for admin_id in target_admins:
         try:
             await message.bot.send_message(admin_id, admin_text, reply_markup=reply_markup)
             delivered = True
@@ -313,12 +408,28 @@ async def user_profile(callback: CallbackQuery):
     await _render_user_profile(callback.message, callback.from_user.id)
 
 
+@router.callback_query(F.data == "user:active_booking")
+async def user_active_booking(callback: CallbackQuery):
+    await callback.answer()
+    records = _active_user_bookings(await get_consultations_for_user(callback.from_user.id))
+    if not records:
+        await callback.message.edit_text(USER_ACTIVE_BOOKING_EMPTY, reply_markup=_bookings_menu_keyboard())
+        return
+
+    record = records[0]
+    record["client"] = await get_client_profile(callback.from_user.id) or {}
+    await callback.message.edit_text(
+        _booking_card_text(record),
+        reply_markup=_user_booking_keyboard(record),
+    )
+
+
 @router.callback_query(F.data == "user:contact_admin")
 async def user_contact_admin(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(ClientChatStates.waiting_admin_message)
     await callback.message.edit_text(
-        USER_CHAT_PROMPT,
+        await _client_chat_intro_text(callback.from_user.id),
         reply_markup=_user_chat_prompt_keyboard(),
     )
 
@@ -349,6 +460,8 @@ async def user_send_message_to_admin(message: Message, state: FSMContext):
         await message.answer(USER_CHAT_SEND_ERROR)
         return
 
+    await log_chat_message(message.from_user.id, "client", text)
+    await log_event("chat_client_message", user_id=message.from_user.id, details=text[:300])
     await message.answer(USER_CHAT_MODE_SENT, reply_markup=_user_chat_prompt_keyboard())
 
 
