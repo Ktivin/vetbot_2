@@ -137,6 +137,8 @@ from texts import (
     USER_BOOKING_COMPLETED,
     USER_BOOKING_CONFIRMED,
     USER_BOOKING_RESCHEDULED,
+    USER_BOOKINGS_MENU_BUTTON,
+    USER_MENU_BOOKINGS_BUTTON,
 )
 
 
@@ -172,6 +174,26 @@ QUICK_REPLIES = {
 
 def _is_admin(user_id: int) -> bool:
     return user_id in ADMIN_USER_IDS
+
+
+def _admin_menu_only_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=ADMIN_MENU_BUTTON, callback_data="admin:menu")]
+        ]
+    )
+
+
+def _client_reply_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Відповісти", callback_data="user:contact_admin")],
+            [
+                InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
+                InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
+            ],
+        ]
+    )
 
 
 def _admin_menu_keyboard(counts: dict[str, int], clients_count: int) -> InlineKeyboardMarkup:
@@ -1086,7 +1108,7 @@ async def admin_panel(message: Message):
         clients = await get_all_client_profiles()
     except Exception:
         logger.exception("Не вдалося отримати дані для адмін-панелі.")
-        await message.answer(ADMIN_LOAD_ERROR)
+        await message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
         return
 
     panel_text = ADMIN_PANEL_TITLE
@@ -1104,18 +1126,18 @@ async def admin_find_client(message: Message, command: CommandObject):
 
     query = (command.args or "").strip()
     if not query:
-        await message.answer(ADMIN_SEARCH_USAGE)
+        await message.answer(ADMIN_SEARCH_USAGE, reply_markup=_admin_menu_only_keyboard())
         return
 
     try:
         results = await search_client_profiles(query)
     except Exception:
         logger.exception("Не вдалося виконати пошук клієнта за запитом %s.", query)
-        await message.answer(ADMIN_LOAD_ERROR)
+        await message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
         return
 
     if not results:
-        await message.answer(ADMIN_SEARCH_EMPTY)
+        await message.answer(ADMIN_SEARCH_EMPTY, reply_markup=_admin_menu_only_keyboard())
         return
 
     text = ADMIN_SEARCH_TITLE
@@ -1137,7 +1159,7 @@ async def admin_chats(callback: CallbackQuery, state: FSMContext):
     except Exception:
         logger.exception("Не вдалося відкрити список чатів.")
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data == "admin:analytics")
@@ -1153,7 +1175,7 @@ async def admin_analytics(callback: CallbackQuery, state: FSMContext):
     except Exception:
         logger.exception("Не вдалося відкрити аналітику.")
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:assign_chat:"))
@@ -1206,11 +1228,7 @@ async def admin_quick_reply(callback: CallbackQuery, state: FSMContext):
         await callback.bot.send_message(
             user_id,
             f"💬 Адміністратор\n\n🕒 {sent_at}\n\n{text}",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="💬 Відповісти", callback_data="user:contact_admin")]
-                ]
-            ),
+            reply_markup=_client_reply_keyboard(),
         )
     except Exception:
         logger.exception("Не вдалося надіслати швидку відповідь клієнту %s.", user_id)
@@ -1290,7 +1308,14 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
 
     text = (message.text or "").strip()
     if not text:
-        await message.answer(ADMIN_MESSAGE_EMPTY)
+        data = await state.get_data()
+        target_user_id = data.get("admin_target_user_id")
+        reply_markup = (
+            _admin_message_prompt_keyboard(int(target_user_id))
+            if target_user_id
+            else _admin_menu_only_keyboard()
+        )
+        await message.answer(ADMIN_MESSAGE_EMPTY, reply_markup=reply_markup)
         return
 
     data = await state.get_data()
@@ -1300,21 +1325,12 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
 
     if not target_user_id:
         await state.clear()
-        await message.answer(ADMIN_LOAD_ERROR)
+        await message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
         return
 
     sent_at = datetime.now(BUSINESS_TIMEZONE).strftime("%H:%M")
     outgoing_text = f"💬 Адміністратор\n\n🕒 {sent_at}\n\n{text}"
-    user_reply_markup = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="💬 Відповісти",
-                    callback_data="user:contact_admin",
-                )
-            ]
-        ]
-    )
+    user_reply_markup = _client_reply_keyboard()
 
     try:
         await message.bot.send_message(
@@ -1325,7 +1341,7 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
     except Exception:
         logger.exception("Не вдалося надіслати повідомлення клієнту %s.", target_user_id)
         await state.clear()
-        await message.answer(ADMIN_MESSAGE_SEND_ERROR)
+        await message.answer(ADMIN_MESSAGE_SEND_ERROR, reply_markup=_admin_menu_only_keyboard())
         return
 
     await log_chat_message(int(target_user_id), "admin", text, admin_id=message.from_user.id)
@@ -1375,7 +1391,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext):
     except Exception:
         logger.exception("Не вдалося відкрити меню адміністратора.")
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:list:"))
@@ -1392,7 +1408,7 @@ async def admin_list(callback: CallbackQuery):
     except Exception:
         logger.exception("Не вдалося відкрити список записів для фільтра %s.", filter_name)
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:clients:"))
@@ -1409,7 +1425,7 @@ async def admin_clients(callback: CallbackQuery):
     except Exception:
         logger.exception("Не вдалося відкрити список клієнтів.")
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:client:"))
@@ -1439,7 +1455,7 @@ async def admin_client_from_record(callback: CallbackQuery, state: FSMContext):
     except Exception:
         logger.exception("Не вдалося відкрити анкету клієнта %s.", user_id_str)
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:client_bookings:"))
@@ -1457,7 +1473,7 @@ async def admin_client_bookings(callback: CallbackQuery, state: FSMContext):
     except Exception:
         logger.exception("Не вдалося відкрити список записів клієнта %s.", user_id_str)
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:open_booking:"))
@@ -1485,7 +1501,7 @@ async def admin_open_booking(callback: CallbackQuery):
     except Exception:
         logger.exception("Не вдалося відкрити запис %s із картки клієнта.", record_id)
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:client_reset_prompt:"))
@@ -1502,7 +1518,7 @@ async def admin_client_reset_prompt(callback: CallbackQuery):
     except Exception:
         logger.exception("Не вдалося відкрити підтвердження очищення анкети клієнта %s.", user_id_str)
         await callback.answer()
-        await callback.message.answer(ADMIN_LOAD_ERROR)
+        await callback.message.answer(ADMIN_LOAD_ERROR, reply_markup=_admin_menu_only_keyboard())
 
 
 @router.callback_query(lambda callback: callback.data.startswith("admin:client_reset:"))

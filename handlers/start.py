@@ -82,6 +82,14 @@ def contact_request_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def onboarding_step_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart")]
+        ]
+    )
+
+
 def main_menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -227,6 +235,7 @@ async def save_contact(message: Message, state: FSMContext):
         _onboarding_step_text(1, PROFILE_ASK_PET_NAME),
         reply_markup=ReplyKeyboardRemove(),
     )
+    await message.answer("Якщо потрібно, знайомство можна почати заново.", reply_markup=onboarding_step_keyboard())
 
 
 @router.message(OnboardingStates.waiting_contact)
@@ -241,55 +250,55 @@ async def contact_required(message: Message):
 async def save_pet_name(message: Message, state: FSMContext):
     pet_name = _extract_text(message)
     if not pet_name:
-        await message.answer(_onboarding_step_text(1, PROFILE_ASK_PET_NAME))
+        await message.answer(_onboarding_step_text(1, PROFILE_ASK_PET_NAME), reply_markup=onboarding_step_keyboard())
         return
 
     await state.update_data(pet_name=pet_name)
     await state.set_state(OnboardingStates.waiting_pet_breed)
-    await message.answer(_onboarding_step_text(2, PROFILE_ASK_BREED))
+    await message.answer(_onboarding_step_text(2, PROFILE_ASK_BREED), reply_markup=onboarding_step_keyboard())
 
 
 @router.message(OnboardingStates.waiting_pet_breed)
 async def save_pet_breed(message: Message, state: FSMContext):
     pet_breed = _extract_text(message)
     if not pet_breed:
-        await message.answer(_onboarding_step_text(2, PROFILE_ASK_BREED))
+        await message.answer(_onboarding_step_text(2, PROFILE_ASK_BREED), reply_markup=onboarding_step_keyboard())
         return
 
     await state.update_data(pet_breed=pet_breed)
     await state.set_state(OnboardingStates.waiting_pet_age)
-    await message.answer(_onboarding_step_text(3, PROFILE_ASK_AGE))
+    await message.answer(_onboarding_step_text(3, PROFILE_ASK_AGE), reply_markup=onboarding_step_keyboard())
 
 
 @router.message(OnboardingStates.waiting_pet_age)
 async def save_pet_age(message: Message, state: FSMContext):
     pet_age = _extract_text(message)
     if not pet_age:
-        await message.answer(_onboarding_step_text(3, PROFILE_ASK_AGE))
+        await message.answer(_onboarding_step_text(3, PROFILE_ASK_AGE), reply_markup=onboarding_step_keyboard())
         return
 
     await state.update_data(pet_age=pet_age)
     await state.set_state(OnboardingStates.waiting_pet_weight)
-    await message.answer(_onboarding_step_text(4, PROFILE_ASK_WEIGHT))
+    await message.answer(_onboarding_step_text(4, PROFILE_ASK_WEIGHT), reply_markup=onboarding_step_keyboard())
 
 
 @router.message(OnboardingStates.waiting_pet_weight)
 async def save_pet_weight(message: Message, state: FSMContext):
     pet_weight = _extract_text(message)
     if not pet_weight:
-        await message.answer(_onboarding_step_text(4, PROFILE_ASK_WEIGHT))
+        await message.answer(_onboarding_step_text(4, PROFILE_ASK_WEIGHT), reply_markup=onboarding_step_keyboard())
         return
 
     await state.update_data(pet_weight=pet_weight)
     await state.set_state(OnboardingStates.waiting_issue_description)
-    await message.answer(_onboarding_step_text(5, PROFILE_ASK_ISSUE))
+    await message.answer(_onboarding_step_text(5, PROFILE_ASK_ISSUE), reply_markup=onboarding_step_keyboard())
 
 
 @router.message(OnboardingStates.waiting_issue_description)
 async def save_issue_description(message: Message, state: FSMContext):
     issue_description = _extract_text(message)
     if not issue_description:
-        await message.answer(_onboarding_step_text(5, PROFILE_ASK_ISSUE))
+        await message.answer(_onboarding_step_text(5, PROFILE_ASK_ISSUE), reply_markup=onboarding_step_keyboard())
         return
 
     await state.update_data(issue_description=issue_description)
@@ -299,7 +308,7 @@ async def save_issue_description(message: Message, state: FSMContext):
         await upsert_client_profile(profile_data)
     except Exception:
         logger.exception("Не вдалося зберегти профіль клієнта.")
-        await message.answer(PROFILE_SAVE_ERROR, reply_markup=ReplyKeyboardRemove())
+        await message.answer(PROFILE_SAVE_ERROR, reply_markup=onboarding_step_keyboard())
         await state.clear()
         return
 
