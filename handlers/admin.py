@@ -187,7 +187,7 @@ def _admin_menu_only_keyboard() -> InlineKeyboardMarkup:
 def _client_reply_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💬 Відповісти", callback_data="user:contact_admin")],
+            [InlineKeyboardButton(text="Відповісти", callback_data="user:contact_admin")],
             [
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
                 InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main"),
@@ -1227,7 +1227,7 @@ async def admin_quick_reply(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.bot.send_message(
             user_id,
-            f"💬 Адміністратор\n\n🕒 {sent_at}\n\n{text}",
+            f"Адміністратор\n\nЧас: {sent_at}\n\n{text}",
             reply_markup=_client_reply_keyboard(),
         )
     except Exception:
@@ -1329,7 +1329,7 @@ async def admin_send_message_to_client(message: Message, state: FSMContext):
         return
 
     sent_at = datetime.now(BUSINESS_TIMEZONE).strftime("%H:%M")
-    outgoing_text = f"💬 Адміністратор\n\n🕒 {sent_at}\n\n{text}"
+    outgoing_text = f"Адміністратор\n\nЧас: {sent_at}\n\n{text}"
     user_reply_markup = _client_reply_keyboard()
 
     try:

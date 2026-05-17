@@ -20,6 +20,8 @@ from formatting import format_date_for_display, format_status, format_username
 from texts import (
     ADMIN_MENU_BUTTON,
     ADMIN_RECORD_NOT_FOUND,
+    ABOUT_PET_BALANCE_TEXT,
+    CONSULTATION_PREP_TEXT,
     USER_BOOKING_CANCELLED_SUCCESS,
     USER_BOOKING_CANCEL_CONFIRM,
     USER_BOOKING_CANCEL_NOT_AVAILABLE,
@@ -47,10 +49,12 @@ from texts import (
     USER_CHAT_SEND_ERROR,
     USER_CHAT_SENT,
     USER_CHAT_TITLE,
+    USER_MENU_ABOUT_BUTTON,
     USER_MENU_CONTACT_ADMIN_BUTTON,
     USER_MENU_ACTIVE_BOOKING_BUTTON,
     USER_ACTIVE_BOOKING_EMPTY,
     USER_MENU_BOOKINGS_BUTTON,
+    USER_MENU_PREPARE_BUTTON,
     USER_MENU_PROFILE_BUTTON,
     USER_PROFILE_EMPTY,
     USER_PROFILE_HINT,
@@ -120,6 +124,10 @@ def _bookings_menu_keyboard(include_active: bool = True) -> InlineKeyboardMarkup
     rows.extend(
         [
             [
+                InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about"),
+                InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare"),
+            ],
+            [
                 InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
                 InlineKeyboardButton(
                     text=USER_MENU_CONTACT_ADMIN_BUTTON,
@@ -134,16 +142,33 @@ def _bookings_menu_keyboard(include_active: bool = True) -> InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _info_keyboard(current_section: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if current_section != "about":
+        rows.append([InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about")])
+    if current_section != "prepare":
+        rows.append([InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare")])
+    rows.extend(
+        [
+            [
+                InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
+                InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin"),
+            ],
+            [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def _user_bookings_keyboard(records: list[dict]) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for record in records[:8]:
-        status_emoji = "🟢" if record.get("status") == "confirmed" else "🟡" if record.get("status") == "pending" else "⚪"
         rows.append(
             [
                 InlineKeyboardButton(
                     text=(
-                        f"{status_emoji} {format_date_for_display(record['date'])}, {record['time']} • "
-                        f"{record['specialist']}"
+                        f"{format_date_for_display(record['date'])} · "
+                        f"{record['time']} · {record['specialist']}"
                     ),
                     callback_data=f"user:booking:{record['id']}",
                 )
@@ -151,6 +176,12 @@ def _user_bookings_keyboard(records: list[dict]) -> InlineKeyboardMarkup:
         )
 
     rows.append([InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin")])
+    rows.append(
+        [
+            InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about"),
+            InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare"),
+        ]
+    )
     rows.append([InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking")])
     rows.append([InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -176,6 +207,12 @@ def _user_booking_keyboard(record: dict) -> InlineKeyboardMarkup:
                 text=USER_MENU_CONTACT_ADMIN_BUTTON,
                 callback_data="user:contact_admin",
             ),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about"),
+            InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare"),
         ]
     )
     rows.append([InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")])
@@ -204,19 +241,19 @@ def _booking_card_text(record: dict) -> str:
     lines = [
         USER_BOOKING_CARD_TITLE,
         "",
-        "📋 Деталі",
-        f"👨‍⚕️ {USER_BOOKING_CARD_SPECIALIST}: {record['specialist']}",
-        f"📝 {USER_BOOKING_CARD_TYPE}: {record['consultation_type']}",
-        f"📲 {USER_BOOKING_CARD_COMMUNICATION}: {record.get('communication_method', '—') or '—'}",
-        f"📅 {USER_BOOKING_CARD_DATE}: {format_date_for_display(record['date'])}",
-        f"🕒 {USER_BOOKING_CARD_TIME}: {record['time']}",
-        f"📌 {USER_BOOKING_CARD_STATUS}: {format_status(record['status'])}",
+        "Деталі",
+        f"{USER_BOOKING_CARD_SPECIALIST}: {record['specialist']}",
+        f"{USER_BOOKING_CARD_TYPE}: {record['consultation_type']}",
+        f"{USER_BOOKING_CARD_COMMUNICATION}: {record.get('communication_method', '—') or '—'}",
+        f"{USER_BOOKING_CARD_DATE}: {format_date_for_display(record['date'])}",
+        f"{USER_BOOKING_CARD_TIME}: {record['time']}",
+        f"{USER_BOOKING_CARD_STATUS}: {format_status(record['status'])}",
     ]
     if record.get("city"):
-        lines.append(f"🏙️ {USER_BOOKING_CARD_CITY}: {record['city']}")
+        lines.append(f"{USER_BOOKING_CARD_CITY}: {record['city']}")
     client_issue = (record.get("client") or {}).get("issue_description", "")
     if client_issue:
-        lines.extend(["", "💬 Запит", f"{client_issue}"])
+        lines.extend(["", USER_BOOKING_CARD_ISSUE, f"{client_issue}"])
     return "\n".join(lines)
 
 
@@ -245,9 +282,10 @@ async def _render_user_bookings(target_message, user_id: int, flash_message: str
             [
                 "",
                 USER_BOOKINGS_ACTIVE_LABEL,
-                f"👨‍⚕️ {next_record['specialist']}",
-                f"📅 {format_date_for_display(next_record['date'])}, {next_record['time']}",
-                f"📌 {format_status(next_record['status'])}",
+                f"Фахівець: {next_record['specialist']}",
+                f"Дата: {format_date_for_display(next_record['date'])}",
+                f"Час: {next_record['time']}",
+                f"Статус: {format_status(next_record['status'])}",
             ]
         )
     if history_records:
@@ -269,6 +307,10 @@ def _user_profile_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=PROFILE_RESTART_BUTTON, callback_data="profile:restart"),
             ],
             [InlineKeyboardButton(text=USER_MENU_CONTACT_ADMIN_BUTTON, callback_data="user:contact_admin")],
+            [
+                InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about"),
+                InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare"),
+            ],
             [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
         ]
     )
@@ -281,6 +323,10 @@ def _user_chat_prompt_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking"),
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
+            ],
+            [
+                InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about"),
+                InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare"),
             ],
             [InlineKeyboardButton(text=USER_BOOKINGS_MENU_BUTTON, callback_data="home:main")],
         ]
@@ -320,7 +366,7 @@ async def _client_chat_intro_text(user_id: int) -> str:
     )
     lines = [USER_CHAT_PROMPT]
     if active_count:
-        lines.append(f"📌 Активних записів зараз: {active_count}")
+        lines.append(f"Активних записів зараз: {active_count}")
     if active_records:
         next_record = active_records[0]
         lines.append(
@@ -341,14 +387,14 @@ async def _render_user_profile(target_message, user_id: int):
     lines = [
         USER_PROFILE_TITLE,
         "",
-        "🐾 Хвостик",
-        f"🐾 {profile.get('pet_name', '—')}",
-        f"🧬 {profile.get('pet_breed', '—')}",
-        f"🎂 {profile.get('pet_age', '—')}",
-        f"⚖️ {profile.get('pet_weight', '—')}",
+        "Хвостик",
+        f"Ім'я: {profile.get('pet_name', '—')}",
+        f"Порода: {profile.get('pet_breed', '—')}",
+        f"Вік: {profile.get('pet_age', '—')}",
+        f"Вага: {profile.get('pet_weight', '—')}",
     ]
     if profile.get("issue_description"):
-        lines.extend(["", "💬 Запит", profile["issue_description"]])
+        lines.extend(["", "Запит", profile["issue_description"]])
     lines.extend(["", USER_PROFILE_HINT])
     await target_message.edit_text("\n".join(lines), reply_markup=_user_profile_keyboard())
 
@@ -441,6 +487,26 @@ async def user_active_booking(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         _booking_card_text(record),
         reply_markup=_user_booking_keyboard(record),
+    )
+
+
+@router.callback_query(F.data == "user:about")
+async def user_about(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.edit_text(
+        ABOUT_PET_BALANCE_TEXT,
+        reply_markup=_info_keyboard(current_section="about"),
+    )
+
+
+@router.callback_query(F.data == "user:prepare")
+async def user_prepare(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.edit_text(
+        CONSULTATION_PREP_TEXT,
+        reply_markup=_info_keyboard(current_section="prepare"),
     )
 
 

@@ -16,7 +16,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from config import BUSINESS_TIMEZONE
+from config import BUSINESS_TIMEZONE, WELCOME_BANNER_FILE_ID, WELCOME_BANNER_URL
 from database import get_client_profile, get_consultations_for_user, upsert_client_profile
 from formatting import format_date_for_display, format_status
 from texts import (
@@ -46,8 +46,11 @@ from texts import (
     SUMMARY_PET_BREED,
     SUMMARY_PET_NAME,
     SUMMARY_PET_WEIGHT,
+    USER_MENU_ABOUT_BUTTON,
     USER_MENU_ACTIVE_BOOKING_BUTTON,
     USER_MENU_CONTACT_ADMIN_BUTTON,
+    USER_MENU_PREPARE_BUTTON,
+    WELCOME_BANNER_CAPTION,
 )
 
 
@@ -106,6 +109,10 @@ def main_menu():
                 InlineKeyboardButton(text=USER_MENU_ACTIVE_BOOKING_BUTTON, callback_data="user:active_booking"),
             ],
             [
+                InlineKeyboardButton(text=USER_MENU_ABOUT_BUTTON, callback_data="user:about"),
+                InlineKeyboardButton(text=USER_MENU_PREPARE_BUTTON, callback_data="user:prepare"),
+            ],
+            [
                 InlineKeyboardButton(text=USER_MENU_BOOKINGS_BUTTON, callback_data="user:bookings"),
                 InlineKeyboardButton(text=USER_MENU_PROFILE_BUTTON, callback_data="user:profile"),
             ],
@@ -126,7 +133,21 @@ def _onboarding_step_text(step: int, text: str) -> str:
     return f"{ONBOARDING_STEP_TITLE}\nКрок {step} із {ONBOARDING_TOTAL_STEPS}\n\n{text}"
 
 
-async def _show_main_menu(message: Message, text: str = START_GREETING):
+async def _send_welcome_banner(message: Message) -> None:
+    photo = WELCOME_BANNER_FILE_ID or WELCOME_BANNER_URL
+    if not photo:
+        return
+
+    try:
+        await message.answer_photo(photo=photo, caption=WELCOME_BANNER_CAPTION)
+    except Exception:
+        logger.exception("Не вдалося надіслати welcome banner.")
+
+
+async def _show_main_menu(message: Message, text: str = START_GREETING, show_banner: bool = False):
+    if show_banner:
+        await _send_welcome_banner(message)
+
     menu_text = await build_main_menu_text(message.from_user.id, text)
     await message.answer(menu_text, reply_markup=main_menu())
 
@@ -140,9 +161,10 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
     if profile and profile.get("pet_name"):
         pet_summary = "\n".join(
             [
-                f"🐾 {profile.get('pet_name', '—')}",
-                f"🧬 {profile.get('pet_breed', '—')}",
-                f"🎂 {profile.get('pet_age', '—')} • ⚖️ {profile.get('pet_weight', '—')}",
+                f"{SUMMARY_PET_NAME}: {profile.get('pet_name', '—')}",
+                f"{SUMMARY_PET_BREED}: {profile.get('pet_breed', '—')}",
+                f"{SUMMARY_PET_AGE} / {SUMMARY_PET_WEIGHT}: "
+                f"{profile.get('pet_age', '—')} / {profile.get('pet_weight', '—')}",
             ]
         )
         sections.append(f"{PROFILE_MENU_SUMMARY_TITLE}\n{pet_summary}")
@@ -166,15 +188,17 @@ async def build_main_menu_text(user_id: int, heading: str | None = None) -> str:
         _, next_record = upcoming_bookings[0]
         next_line = "\n".join(
             [
-                f"👨‍⚕️ {next_record['specialist']}",
-                f"📅 {format_date_for_display(next_record['date'])}, {next_record['time']}",
-                f"📌 {format_status(next_record['status'])}",
+                f"Фахівець: {next_record['specialist']}",
+                f"Дата: {format_date_for_display(next_record['date'])}",
+                f"Час: {next_record['time']}",
+                f"Статус: {format_status(next_record['status'])}",
             ]
         )
         sections.append(f"{USER_NEXT_BOOKING_LABEL}\n{next_line}")
 
     sections.append(
-        "Оберіть фахівця або скористайтеся швидкими діями нижче."
+        "Оберіть напрям консультації або відкрийте потрібний розділ нижче. "
+        "Якщо хочете спочатку зорієнтуватися, перегляньте інформацію про сервіс і підготовку."
     )
 
     return "\n\n".join(section for section in sections if section)
@@ -199,9 +223,10 @@ async def cmd_start(message: Message, state: FSMContext):
     profile = await get_client_profile(message.from_user.id)
     if profile and profile.get("phone_number"):
         await state.clear()
-        await _show_main_menu(message, PROFILE_ALREADY_SAVED)
+        await _show_main_menu(message, PROFILE_ALREADY_SAVED, show_banner=True)
         return
 
+    await _send_welcome_banner(message)
     await _start_onboarding(message, state)
 
 

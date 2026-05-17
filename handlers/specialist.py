@@ -92,27 +92,27 @@ def _format_summary(data: dict) -> str:
     lines = [
         SUMMARY_TITLE,
         "",
-        "🐾 Хвостик",
-        f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
-        f"🧬 {SUMMARY_PET_BREED}: {data['pet_breed']}",
-        f"🎂 {SUMMARY_PET_AGE}: {data['pet_age']}",
-        f"⚖️ {SUMMARY_PET_WEIGHT}: {data['pet_weight']}",
+        "Хвостик",
+        f"{SUMMARY_PET_NAME}: {data['pet_name']}",
+        f"{SUMMARY_PET_BREED}: {data['pet_breed']}",
+        f"{SUMMARY_PET_AGE}: {data['pet_age']}",
+        f"{SUMMARY_PET_WEIGHT}: {data['pet_weight']}",
         "",
-        "📋 Запис",
-        f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
-        f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
-        f"📲 {SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
-        f"📅 {SUMMARY_DATE}: {format_date_for_display(data['date'])}",
-        f"🕒 {SUMMARY_TIME}: {data['time']}",
+        "Консультація",
+        f"{SUMMARY_SPECIALIST}: {data['specialist']}",
+        f"{SUMMARY_TYPE}: {data['consultation_type']}",
+        f"{SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
+        f"{SUMMARY_DATE}: {format_date_for_display(data['date'])}",
+        f"{SUMMARY_TIME}: {data['time']}",
     ]
     city = data.get("city", "").strip()
     if city:
-        lines.append(f"🏙️ {SUMMARY_CITY}: {city}")
+        lines.append(f"{SUMMARY_CITY}: {city}")
     lines.extend(
         [
             "",
-            "💬 Запит",
-            f"💬 {SUMMARY_ISSUE}: {data['issue_description']}",
+            "Запит",
+            data["issue_description"],
         ]
     )
     lines.extend(["", SUMMARY_NOTE])
@@ -122,16 +122,16 @@ def _format_summary(data: dict) -> str:
 def _step_context(data: dict) -> str:
     lines: list[str] = []
     if data.get("specialist"):
-        lines.append(f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}")
+        lines.append(f"{SUMMARY_SPECIALIST}: {data['specialist']}")
     if data.get("consultation_type"):
-        lines.append(f"📝 {SUMMARY_TYPE}: {data['consultation_type']}")
+        lines.append(f"{SUMMARY_TYPE}: {data['consultation_type']}")
     elif data.get("consultation_group"):
-        lines.append(f"📝 {SUMMARY_TYPE}: {data['consultation_group']}")
+        lines.append(f"{SUMMARY_TYPE}: {data['consultation_group']}")
     if data.get("communication_method"):
-        lines.append(f"📲 {SUMMARY_COMMUNICATION}: {data['communication_method']}")
+        lines.append(f"{SUMMARY_COMMUNICATION}: {data['communication_method']}")
     city = data.get("city", "").strip()
     if city:
-        lines.append(f"🏙️ {SUMMARY_CITY}: {city}")
+        lines.append(f"{SUMMARY_CITY}: {city}")
     return "\n".join(lines)
 
 
@@ -150,17 +150,17 @@ def _format_booking_created_message(data: dict) -> str:
     lines = [
         BOOKING_SUCCESS_TITLE,
         "",
-        "📋 Деталі запису",
-        f"🐾 {SUMMARY_PET_NAME}: {data['pet_name']}",
-        f"👨‍⚕️ {SUMMARY_SPECIALIST}: {data['specialist']}",
-        f"📝 {SUMMARY_TYPE}: {data['consultation_type']}",
-        f"📲 {SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
-        f"📅 {SUMMARY_DATE}: {format_date_for_display(data['date'])}",
-        f"🕒 {SUMMARY_TIME}: {data['time']}",
+        "Деталі запису",
+        f"{SUMMARY_PET_NAME}: {data['pet_name']}",
+        f"{SUMMARY_SPECIALIST}: {data['specialist']}",
+        f"{SUMMARY_TYPE}: {data['consultation_type']}",
+        f"{SUMMARY_COMMUNICATION}: {data.get('communication_method', '—')}",
+        f"{SUMMARY_DATE}: {format_date_for_display(data['date'])}",
+        f"{SUMMARY_TIME}: {data['time']}",
     ]
     city = data.get("city", "").strip()
     if city:
-        lines.append(f"🏙️ {SUMMARY_CITY}: {city}")
+        lines.append(f"{SUMMARY_CITY}: {city}")
     lines.extend(["", BOOKING_SUCCESS_FOOTER])
     return "\n".join(lines)
 
